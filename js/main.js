@@ -35,8 +35,8 @@ String.naturalCompare = function(a, b) {
 	return 0;
 };
 
-define(['jquery', 'UrlMap', 'Firebase', 'FirebaseAuth', 'RectDrawer', 'PolyDrawer', 'DataService', 'LayerManager', 'MapManager', 'Downloader', 'jquery-ui', 'bootstrap'], 
-		function($, UrlMap, Firebase, FirebaseAuth, RectDrawer, PolyDrawer, DataService, LayerManager, MapManager, Downloader) {
+define(['jquery', 'UrlMap', 'Firebase', 'FirebaseAuth','FirebaseAuth-modern', 'RectDrawer', 'PolyDrawer', 'DataService', 'LayerManager', 'MapManager', 'Downloader', 'jquery-ui', 'bootstrap'], 
+		function($, UrlMap, Firebase, FirebaseAuth, FirebaseAuthModern , RectDrawer, PolyDrawer, DataService, LayerManager, MapManager, Downloader) {
 	"use strict";
 	
 	/// CONSTANTS
@@ -46,6 +46,15 @@ define(['jquery', 'UrlMap', 'Firebase', 'FirebaseAuth', 'RectDrawer', 'PolyDrawe
 	/// EXTERNAL LIBRARIES
 	var fb = new Firebase(FIREBASE_URL);
 	var fbAuth = new FirebaseAuth(fb);
+
+	var firebaseConfig = {
+		apiKey: "AIzaSyCUh3jgJD4E_YZUaBvRAeSKwf5lvDv4sy4",
+		authDomain: "vpc.firebaseapp.com",
+		projectId: "firebase-vpc",
+		// (optional: storageBucket, messagingSenderId, etc.)
+	  };
+
+	var fbAuth2 = new FirebaseAuthModern(firebaseConfig);
 	
 	/// CORE FUNCTIONALITY
 	var urlMap = new UrlMap();
@@ -112,7 +121,7 @@ define(['jquery', 'UrlMap', 'Firebase', 'FirebaseAuth', 'RectDrawer', 'PolyDrawe
 	function showLoginForm(type) {
 		var callback;
 		if (type === "login") {
-			callback = fbAuth.login;
+			callback = fbAuth2.login;
 		}
 		else {
 			alert("Not working yet. Check back soon!");
