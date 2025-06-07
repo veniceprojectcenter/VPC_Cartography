@@ -19,12 +19,23 @@ html, body
 	width: 20px;
 	vertical-align: middle;
 }
-.search
-{
-	display: inline; /* Override Bootstrap */
-	width: 50%;
+.search {
+	display: inline;
+	width: 10%;
 	border-radius: 5px;
+	transition: width 0.3s ease;
 }
+
+.search:focus {
+	width: 25%;
+}
+
+.header-right-side{
+flex-direction: row;
+display: flex;
+max-height: 40px;
+}
+
 .header-text
 {
 	margin: 0;
@@ -76,9 +87,7 @@ html, body
 	z-index: 999; /* In front */
 }
 .login {
-	position: fixed;
-	top: 10px;
-	right: 10px;
+
 }
 .login-text {
 	color: black;
@@ -108,7 +117,8 @@ html, body
 }
 #mini-header
 {
-	display: block; /* Default on load */
+	display: flex; /* Default on load */
+	justify-content: space-between;
 }
 #header
 {
@@ -146,6 +156,17 @@ html, body
     margin-left: 12px;
     line-height: 1.5;
     display: block;
+}
+
+.btn-group {
+	gap: 5px;
+	display: flex;
+}
+.panel{
+	margin: 0;
+}
+.panel-body{
+	padding: 10px;
 }
 
 /* Add support for dropdown submenus */
