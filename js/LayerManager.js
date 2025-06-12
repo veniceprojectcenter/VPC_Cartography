@@ -242,10 +242,25 @@ define(['lodash'], function(_) {
 						} else {
 							content += '<br />';
 						}
-						if (dataService.auth.getUser()) {
+						var loggedIn = document.getElementById('drawmode').style.display !== 'none';
+						if (loggedIn) {
 							content += '<a class="edit" href="#">Edit</a> <a class="clone" href="#">Clone</a> <a class="delete" href="#">Delete</a>';
+							content += '<a href="#" style="font-size:x-small; margin-left: 2px;" id="editfeature">Edit Polygon</a>';
 						}
 						L.popup({}, newPoly).setLatLng(newPoly.getBounds().getCenter()).setContent(content).openOn(mapManager.map);
+						const Editbutton = document.getElementById('editfeature');
+						const writeButton = document.getElementById('drawmode');
+						const btnGroup = document.querySelector('.btn-group');
+						Editbutton.addEventListener('click', function (){
+							 writeButton.click();
+							 const finishButton = document.createElement('button');
+								finishButton.id = 'finish';
+								finishButton.textContent = 'Finish Editing';
+								btnGroup.appendChild(finishButton);
+								finishButton.addEventListener('click', function (){
+									 writeButton.click();
+									 btnGroup.removeChild(finishButton);})
+					});
 						selectedPoly = newPoly;
 						selectedData = feature;
 					});
