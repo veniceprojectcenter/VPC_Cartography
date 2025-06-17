@@ -157,13 +157,18 @@ define(['jquery', 'Leaflet', 'LeafletMiniMap'], function($, L) {
 				// Fail silently if duplicate
 				return;
 			}
+			let username = "default"; // fallback default
+			let usernameElement = document.getElementById("loggedin-username");
 
+			if (usernameElement && usernameElement.textContent.trim() !== "") {
+				username = usernameElement.textContent.trim();
+			}
 			dataService.fb.child('maps').child(id).set({
 				name: name, 
 				id: id, 
 				year: year, 
 				tiles: tiles, 
-				createdBy: dataService.auth.getUser().uid
+				createdBy: username
 			});
 			$('#new-map').modal('hide');
 		};

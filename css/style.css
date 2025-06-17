@@ -169,6 +169,25 @@ max-height: 40px;
 	padding: 10px;
 }
 
+
+.dropdown-menu.layers-menu > li {
+  display: flex;
+  align-items: center;       
+  justify-content: space-between; 
+  padding: 4px 12px;        
+}
+
+
+.dropdown-menu.layers-menu > li .layer-toggle {
+  flex: 1;
+}
+
+
+.dropdown-menu.layers-menu > li .edit-layer-btn {
+  margin-left: 8px;
+  flex-shrink: 0;
+}
+
 #loggedin-username {
   display: inline-block;
   max-width: 75px;
