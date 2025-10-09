@@ -18,17 +18,20 @@ define(['lodash'], function(_) {
     var data = snapshot.val();
     $(document).ready(function() {
       // build one <li> containing BOTH the toggle-anchor and a tiny edit-button
+      var loggedIn = document.getElementById('drawmode').style.display !== 'none';
       var newOption = ''
-        + '<li role="presentation">'
-        +   '<a role="menuitem" id="'+data.id+'-layer" href="#" class="layer-toggle">'
-        +     data.name
-        +   '</a>'
-        +   ' <a href="#" '
-        +       'class="edit-layer-btn" '
-        +       'data-layer-id="'+data.id+'" '
-        +       'style="font-size:0.8em; margin-left:6px;"'
-        +     '>✎</a>'
-        + '</li>';
+    + '<li role="presentation">'
+    +   '<a role="menuitem" id="'+data.id+'-layer" href="#" class="layer-toggle">'
+    +     data.name
+    +   '</a>';
+    if (loggedIn) {
+        newOption += ' <a href="#" '
+            + 'class="edit-layer-btn" '
+            + 'data-layer-id="'+data.id+'" '
+            + 'style="font-size:0.8em; margin-left:6px;"'
+            + '>✎</a>';
+    }
+    newOption += '</li>';
 
       // insert into whichever menu
       if (data.parent) {
@@ -286,6 +289,7 @@ define(['lodash'], function(_) {
                         const Editbutton = document.getElementById('editfeature');
                         const writeButton = document.getElementById('drawmode');
                         const btnGroup = document.querySelector('.btn-group');
+						if(loggedIn){
                         Editbutton.addEventListener('click', function (){
                              writeButton.click();
                              const finishButton = document.createElement('button');
@@ -296,6 +300,7 @@ define(['lodash'], function(_) {
                                      writeButton.click();
                                      btnGroup.removeChild(finishButton);})
                     });
+						}
                         selectedPoly = newPoly;
                         selectedData = feature;
                     });
