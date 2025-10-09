@@ -23,7 +23,7 @@ if (!Array.prototype.findIndex) {
 
 define(['Firebase', 'lodash'], function(Firebase, _) {
 	
-	function DataService(fb, fbAuth, defaultMapId) {
+	function DataService(fb, fbAuth, defaultMapId, fbAuth2) {
 		var data = [];
 		var dataById = {};
 		var currentMapId = defaultMapId;
@@ -32,6 +32,7 @@ define(['Firebase', 'lodash'], function(Firebase, _) {
 		
 		this.fb = fb;
 		this.auth = fbAuth;
+		this.fbAuth2 = fbAuth2;
 		
 		// TODO: data and dataById are populated in initializeSearch in init.js,
 		// which is completely the wrong place

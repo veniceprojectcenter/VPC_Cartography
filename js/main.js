@@ -50,6 +50,7 @@ define(['jquery', 'UrlMap', 'Firebase', 'FirebaseAuth','FirebaseAuth-modern', 'R
 	var firebaseConfig = {
 		apiKey: "AIzaSyCUh3jgJD4E_YZUaBvRAeSKwf5lvDv4sy4",
 		authDomain: "vpc.firebaseapp.com",
+		databaseURL: "https://vpc.firebaseio.com",
 		projectId: "firebase-vpc",
 		// (optional: storageBucket, messagingSenderId, etc.)
 	  };
@@ -58,7 +59,7 @@ define(['jquery', 'UrlMap', 'Firebase', 'FirebaseAuth','FirebaseAuth-modern', 'R
 	
 	/// CORE FUNCTIONALITY
 	var urlMap = new UrlMap();
-	var dataService = new DataService(fb, fbAuth, urlMap.map); //.DEFAULT_MAP);
+	var dataService = new DataService(fb, fbAuth, urlMap.map, fbAuth2); //.DEFAULT_MAP);
 	var mapManager = new MapManager(dataService);
 	var layerManager = new LayerManager(dataService, mapManager, urlMap.layer);
 	mapManager.onSwitch(function(){

@@ -404,31 +404,35 @@ define(['lodash'], function(_) {
 		const layerId = $('#edit-layer-id').val();    // your id property
 		const newName = $('#edit-layer-name').val().trim();
 		const newColor= $('#edit-layer-color').val();
-
 		if (!key) return alert("Missing layer key!");
+        const layerRef = dataService.fbAuth2.ref('cartography/layers/' + key);
+        dataService.fbAuth2.update(layerRef, {
+        name: newName,
+        color: newColor
+        }).then(() => {
+        // 1) update the menu label
+        $('#' + layerId + '-layer').text(newName);
 
-		dataService.fb.child('layers').child(key)
-			.update({ name: newName, color: newColor }, function(err) {
-			if (err) return alert("Update failed: " + err);
+        // 2) update the <select> option
+        $('.layers-select option[value="'+layerId+'"]').text(newName);
 
-			// 1) update the menu label
-			$('#' + layerId + '-layer').text(newName);
+        // 3) update our local color store
+        layerColors[layerId] = newColor;
 
-			// 2) update the <select> option
-			$('.layers-select option[value="'+layerId+'"]').text(newName);
+        // 4) if this layer is currently on the map, recolor its polygons
+        if (polyState[layerId]) {
+            polyState[layerId].forEach(function(poly) {
+            poly.setStyle({ color: newColor });
+            });
+        }
 
-			// 3) update our local color store
-			layerColors[layerId] = newColor;
+        // 5) Close modal
+        $('#edit-layer-modal').modal('hide');
 
-			// 4) if this layer is currently on the map, recolor its polygons
-			if (polyState[layerId]) {
-				polyState[layerId].forEach(function(poly) {
-				poly.setStyle({ color: newColor });
-				});
-			}
+        }).catch((err) => {
+        alert("Update failed: " + err.message);
+        });
 
-			$('#edit-layer-modal').modal('hide');
-			});
 		};
 
 		this.deleteLayer = function() {
