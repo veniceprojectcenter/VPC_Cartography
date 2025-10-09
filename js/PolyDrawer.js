@@ -75,107 +75,138 @@ define(['jquery', 'Leaflet', 'LeafletDraw'], function($, L) {
 		 * call this, and we pull information from the modal
 		 * and use it to populate the database.
 		 */
+		/* When the feautre is ready to be submitted,
+ * call this, and we pull information from the modal
+ * and use it to populate the database.
+ */
 		this.submitFeature = function () {
-	var name = $('#new-feature-name').val();
-	var type = $('#new-feature-type').val();
-	var link = $('#new-feature-link').val();
-	var code = $('#feature-code').val(); // ← New field
+			var name = $('#new-feature-name').val();
+			var type = $('#new-feature-type').val();
+			var link = $('#new-feature-link').val();
+			var code = $('#feature-code').val(); // ← New field
 
-	// If the feature already exists, update it			
-	var feature;
-	var geometry;
-	if (state === "editend") {
-		feature = layerManager.selectedData();
-		state = "start";
-	} else {
-		feature = dataService.findData(name);
-	}
-	
-	// First, check whether the user is adding a whole new feature
-	if ($('#create-coordinates').hasClass('active')) {
-		var featureId = $('#old-feature').val();
-		feature = dataService.featureById(featureId);
-		if (feature.properties.maps.indexOf(dataService.currentMap()) === -1) {
-			feature.properties.maps.push(dataService.currentMap());
-		} 
-		// Add the new geometry
-		dataService.fb.child('geometries')
-			.child(dataService.currentMap())
-			.child(featureId)
-			.set(polyLayer.toGeoJSON().geometry);
-		// Add the map to the array
-		dataService.fb.child('features')
-			.child(featureId)
-			.child('properties/maps')
-			.set(feature.properties.maps, function(error){
-				if (error) return alert("Error: " + error);
-				dataService.updateItem(feature);
-				try {
-					layerManager.disableLayer($('#feature-filter').val());
-				} catch(err) { }
-				layerManager.enableLayer($('#feature-filter').val());
-			});
-	} else if (feature) {
-		// XXX fix name
-		if (!name) return;
-		feature.properties.name = name;
-		geometry = polyLayer.toGeoJSON().geometry;
-		feature.properties.type = type;
-		feature.properties.link = link;
-		feature.properties.code = code; // ← New field
-		dataService.fb.child('features')
-			.child(feature.id)
-			.set(feature);
-		dataService.fb.child('geometries')
-			.child(dataService.currentMap())
-			.child(feature.id)
-			.set(geometry, function(error){
-				if (error) return alert("Error: " + error);
-				dataService.updateItem(feature);
-				try {
-					layerManager.disableLayer(type);
-				} catch(err) { }
-				layerManager.enableLayer(type);
-			});
-	} else {
-		// XXX fix name
-		if (!name) return;
-		var newFeature = {
-			type: "Feature",
-			properties: {
-				name: name,
-				type: type,
-				link: link,
-				code: code, // ← New field
-				zoom: mapManager.map.getZoom(),
-				maps: [dataService.currentMap()],
-				center: {
-					lat: polyLayer.getBounds().getCenter().lat,
-					lng: polyLayer.getBounds().getCenter().lng
-				}
+			// If the feature already exists, update it         
+			var feature;
+			var geometry;
+			if (state === "editend") {
+				feature = layerManager.selectedData();
+				state = "start";
+			} else {
+				feature = dataService.findData(name);
 			}
-		};
-		geometry = polyLayer.toGeoJSON().geometry;
-		dataService.fb.child('features')
-			.push(newFeature)
-			.once('value', function(featureSnap) {
-				dataService.fb.child('geometries')
-					.child(dataService.currentMap())
-					.child(featureSnap.key()).set(geometry, function(error){
-						if (error) return alert("Error: " + error);
-						newFeature.id = featureSnap.key();
-						dataService.push(newFeature);
-						dataService.updateItem(newFeature);
+			
+			// Case A: Adding Coordinates to an Existing Feature (via 'create-coordinates' active state)
+			if ($('#create-coordinates').hasClass('active')) {
+				var featureId = $('#old-feature').val();
+				feature = dataService.featureById(featureId);
+				
+				if (feature.properties.maps.indexOf(dataService.currentMap()) === -1) {
+					feature.properties.maps.push(dataService.currentMap());
+				} 
+
+				// --- MIGRATION: 1. Add new geometry (Set) ---
+				const geometryRef = dataService.fbAuth2.ref('cartography/geometries/' + dataService.currentMap() + '/' + featureId);
+				dataService.fbAuth2.set(geometryRef, polyLayer.toGeoJSON().geometry);
+				// --- END MIGRATION 1 ---
+
+				// --- MIGRATION: 2. Update feature's map list (Set) ---
+				const mapsRef = dataService.fbAuth2.ref('cartography/features/' + featureId + '/properties/maps');
+				
+				dataService.fbAuth2.set(mapsRef, feature.properties.maps)
+					.then(function(){
+						dataService.updateItem(feature);
+						try {
+							layerManager.disableLayer($('#feature-filter').val());
+						} catch(err) { }
+						layerManager.enableLayer($('#feature-filter').val());
+					})
+					.catch(function(error){
+						return alert("Error: " + error);
+					});
+				// --- END MIGRATION 2 ---
+
+			// Case B: Updating an Existing Feature's Data/Geometry
+			} else if (feature) {
+				if (!name) return;
+				feature.properties.name = name;
+				geometry = polyLayer.toGeoJSON().geometry;
+				feature.properties.type = type;
+				feature.properties.link = link;
+				feature.properties.code = code; // ← New field
+				
+				// --- MIGRATION: 3. Update feature data (Set) ---
+				const featureRef = dataService.fbAuth2.ref('cartography/features/' + feature.id);
+				dataService.fbAuth2.set(featureRef, feature);
+				// --- END MIGRATION 3 ---
+				
+				// --- MIGRATION: 4. Update geometry (Set) ---
+				const geometryRef = dataService.fbAuth2.ref('cartography/geometries/' + dataService.currentMap() + '/' + feature.id);
+
+				dataService.fbAuth2.set(geometryRef, geometry)
+					.then(function(){
+						dataService.updateItem(feature);
 						try {
 							layerManager.disableLayer(type);
 						} catch(err) { }
 						layerManager.enableLayer(type);
+					})
+					.catch(function(error){
+						return alert("Error: " + error);
 					});
-			});
-	}
+				// --- END MIGRATION 4 ---
 
-	$('#new-feature').modal('hide');
-};
+			// Case C: Creating a Brand New Feature
+			} else {
+				if (!name) return;
+				var newFeature = {
+					type: "Feature",
+					properties: {
+						name: name,
+						type: type,
+						link: link,
+						code: code, // ← New field
+						zoom: mapManager.map.getZoom(),
+						maps: [dataService.currentMap()],
+						center: {
+							lat: polyLayer.getBounds().getCenter().lat,
+							lng: polyLayer.getBounds().getCenter().lng
+						}
+					}
+				};
+				geometry = polyLayer.toGeoJSON().geometry;
+				
+				// --- MIGRATION: 5. Push new feature (Push + Set) ---
+				const featuresListRef = dataService.fbAuth2.ref('cartography/features');
+				const newFeatureRef = dataService.fbAuth2.push(featuresListRef);
+
+				dataService.fbAuth2.set(newFeatureRef, newFeature)
+					.then(function() {
+						// Get the generated key from the new ref
+						const featureId = newFeatureRef.key;
+						
+						// --- MIGRATION: 6. Set geometry using the new featureId (Set) ---
+						const geometryRef = dataService.fbAuth2.ref('cartography/geometries/' + dataService.currentMap() + '/' + featureId);
+						
+						return dataService.fbAuth2.set(geometryRef, geometry)
+							.then(function(){
+								newFeature.id = featureId;
+								dataService.push(newFeature);
+								dataService.updateItem(newFeature);
+								try {
+									layerManager.disableLayer(type);
+								} catch(err) { }
+								layerManager.enableLayer(type);
+							});
+						// --- END MIGRATION 6 ---
+					})
+					.catch(function(error){
+						return alert("Error: " + error);
+					});
+				// --- END MIGRATION 5 ---
+			}
+
+			$('#new-feature').modal('hide');
+		};
 	
 		/* If the user chooses to discard the feature,
 		 * we remove it from the database if it exists

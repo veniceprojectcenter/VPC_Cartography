@@ -109,13 +109,24 @@ define(['lodash'], function(_) {
                 username = usernameElement.textContent.trim();
             }
             // TODO generalize for any account
-            dataService.fb.child('layers').push({
-                name: name, 
-                id: id, 
+            const layerRef = dataService.fbAuth2.ref('cartography/layers/');
+            const newLayerRef = dataService.fbAuth2.push(layerRef);
+            dataService.fbAuth2.set(newLayerRef,
+                {
+                name: name,
+                id: id,
                 color: color,
                 parent: parent,
                 createdBy: username
-            });
+            }
+            ).then(() => {
+                // Optional: Get the key if needed
+                const newKey = newLayerRef.key; 
+                console.log("New layer successfully pushed with key:", newKey);
+            })
+            .catch((error) => {
+                console.error("Error pushing new layer:", error);
+            });;
             $('#new-layer').modal('hide');
         };
 
@@ -128,19 +139,25 @@ define(['lodash'], function(_) {
         /* Clones the feature to a new layer
          */
         this.clonePoly = function () {
-            var newData = $.extend(true, {}, selectedData); // clone the data
-            newData.properties.type = $('#clone-layer-type').val();
-            
-            // dataService.fb.child('vpc/features').push(newData);
-            var newRef = dataService.fb.child('features').push();
-            console.log("Nuova Chiave", newRef.key(), newData);
-            newRef.set(newData, function(error){
-              console.log("Errore", error);
-              alert("Aggiunto Elemento " + newRef.key());
+        var newData = $.extend(true, {}, selectedData); // clone the data
+        newData.properties.type = $('#clone-layer-type').val();
+        
+        const featuresRef = dataService.fbAuth2.ref('cartography/features');
+        const newRef = dataService.fbAuth2.push(featuresRef);
+
+        console.log("Nuova Chiave", newRef.key, newData);
+        
+        dataService.fbAuth2.set(newRef, newData)
+            .then(() => {
+                console.log("Success");
+                alert("Aggiunto Elemento " + newRef.key);
+            })
+            .catch((error) => {
+                console.log("Errore", error);
             });
 
-            $('#clone-layer').modal('hide');
-            mapManager.map.closePopup();
+        $('#clone-layer').modal('hide');
+        mapManager.map.closePopup();
         };
         
         /* Shows the edit modal
@@ -169,45 +186,58 @@ define(['lodash'], function(_) {
         /* Clones the feature to a new layer
          */
         this.editFeature = function () {
-          // console.log(
-          //   "ID  ", selectedData.id,
-          //   'name', $('#edit-feature-name').val(),
-          //   'link', $('#edit-feature-type').val(),
-          //   'type', $('#edit-feature-link').val()
-          // );
-          selectedData.properties.name = $('#edit-feature-name').val();
-          selectedData.properties.type = $('#edit-feature-type').val();
-          selectedData.properties.code = $('#edit-feature-code').val(); // ← new line
-          selectedData.properties.link = $('#edit-feature-link').val();
-          dataService.fb.child('features').child(selectedData.id).child('properties').update({
+        selectedData.properties.name = $('#edit-feature-name').val();
+        selectedData.properties.type = $('#edit-feature-type').val();
+        selectedData.properties.code = $('#edit-feature-code').val();
+        selectedData.properties.link = $('#edit-feature-link').val();
+
+        // UPDATED: Added 'cartography/'
+        const propertiesRef = dataService.fbAuth2.ref('cartography/features/' + selectedData.id + '/properties');
+        
+        dataService.fbAuth2.update(propertiesRef, {
             name: $('#edit-feature-name').val(),
             type: $('#edit-feature-type').val(),
             code: $('#edit-feature-code').val(),
             link: $('#edit-feature-link').val()
-          }, function(error){
-            if (error) return alert("Error: " + error);
+        })
+        .then(() => {
             $('#edit-layer').modal('hide');
             dataService.updateItem(selectedData);
             myDisableLayer($('#edit-feature-type').val());
             myEnableLayer($('#edit-feature-type').val());
             mapManager.map.closePopup();
-          });
-        };
+        })
+        .catch((error) => {
+            return alert("Error: " + error);
+        });
+    };
         
         this.deletePoly = function(){
-          if (!confirm("DELETE feature " + selectedData.id)) return;
-          
-          var cur_type = selectedData.properties.type;
-          
-          dataService.deleteItem(selectedData);
-        
-        console.log("dd", dataService.currentMap(), selectedData.id);
-          dataService.fb.child('features').child(selectedData.id).remove();
-          dataService.fb.child('geometries').child(dataService.currentMap()).child(selectedData.id).remove();
-          
-          myDisableLayer(cur_type);
-        myEnableLayer(cur_type);
-        }
+            if (!confirm("DELETE feature " + selectedData.id)) return;
+            
+            var cur_type = selectedData.properties.type;
+            
+            dataService.deleteItem(selectedData);
+
+            console.log("dd", dataService.currentMap(), selectedData.id);
+            
+            // UPDATED: Added 'cartography/' to both references
+            const featureRef = dataService.fbAuth2.ref('cartography/features/' + selectedData.id);
+            const geometryRef = dataService.fbAuth2.ref('cartography/geometries/' + dataService.currentMap() + '/' + selectedData.id);
+
+            Promise.all([
+                dataService.fbAuth2.remove(featureRef),
+                dataService.fbAuth2.remove(geometryRef)
+            ])
+            .then(() => {
+                mapManager.map.closePopup();
+                myDisableLayer(cur_type);
+                myEnableLayer(cur_type);
+            })
+            .catch(err => {
+                alert("Delete failed: " + err.message);
+            });
+        };
         
         /* Turns a overlay layer on or off.
          * When layers are enabled, only the enalbed layers' features
@@ -252,8 +282,13 @@ define(['lodash'], function(_) {
 
 					
 
-                        if (feature.properties.link) {
-                            content = '<a href="' + feature.properties.link + '" target="blank_">' + content + '</a>';
+                         if (feature.properties.link) {
+                            // --- FIX FOR VENIPEDIA LINKS! ---
+                            let correctedLink = feature.properties.link.replace('venipedia.org', 'wiki.cityknowledge.org');
+                            correctedLink = correctedLink.replace('www.', '');
+                            correctedLink = correctedLink.replace('http://', 'https://');
+                            content = '<a href="' + correctedLink + '" target="blank_">' + content + '</a>';
+                            // -------------------
                         }
 						if (feature.properties.code) {
 							content += '<br/><strong>Code:</strong> ' 
@@ -371,37 +406,52 @@ define(['lodash'], function(_) {
             });
         };
 
-		// Show the modal and pre-fill it with the layer’s current name & color
-		this.showEditLayerModal = function(layerId) {
-		// Find the Firebase record whose .id === layerId
-		dataService.fb.child('layers')
-			.orderByChild('id')
-			.equalTo(layerId)
-			.limitToFirst(1)
-			.once('value', function(snapshot) {
-			const record = snapshot.val();
-			if (!record) return alert("Layer not found!");
-			// grab the push-key
-			const pushKey = Object.keys(record)[0];
-			const layerData = record[pushKey];
+ 
+        // Show the modal and pre-fill it with the layer’s current name & color
+        this.showEditLayerModal = function(layerId) {
+            // 1. Get the base reference to ALL layers
+            const baseRef = dataService.fbAuth2.ref('cartography/layers');
+            
+            // 2. Execute a simple GET on the path to retrieve all data
+            //    (This avoids the index-requiring orderByChild/equalTo query)
+            dataService.fbAuth2.get(baseRef) // Assumes fbAuth2.get() is the promise-based fetch
+                .then(function(snapshot) {
+                    const allLayers = snapshot.val();
+                    
+                    if (!allLayers) {
+                        return alert("Layer not found (Layer list empty)!");
+                    }
+                    
+                    // 3. Find the correct Firebase push key by filtering client-side
+                    const pushKey = Object.keys(allLayers).find(key => allLayers[key].id === layerId);
+                    
+                    if (!pushKey) {
+                        return alert("Layer not found!");
+                    }
+                    
+                    const layerData = allLayers[pushKey];
 
-			// stash into our hidden inputs
-			$('#edit-layer-key').val(pushKey);
-			$('#edit-layer-id').val(layerId);
-			$('#edit-layer-name').val(layerData.name);
-			$('#edit-layer-color').val(layerData.color);
+                    // stash into our hidden inputs
+                    $('#edit-layer-key').val(pushKey);
+                    $('#edit-layer-id').val(layerId);
+                    $('#edit-layer-name').val(layerData.name);
+                    $('#edit-layer-color').val(layerData.color);
 
-			// wire up the save button (clear any old handlers first)
-			$('#save-edit-layer')
-				.off('click')
-				.on('click', self.saveEditedLayer.bind(self));
-			$('#delete-layer')
-			.off('click')
-			.on('click', self.deleteLayer.bind(self));
+                    // wire up the save button (clear any old handlers first)
+                    $('#save-edit-layer')
+                        .off('click')
+                        .on('click', self.saveEditedLayer.bind(self));
+                    $('#delete-layer')
+                    .off('click')
+                    .on('click', self.deleteLayer.bind(self));
 
-			$('#edit-layer-modal').modal('show');
-			});
-		};
+                    $('#edit-layer-modal').modal('show');
+                })
+                .catch(function(error) {
+                    console.error("Layer fetch failed:", error);
+                    alert("An error occurred while fetching layer data. Check console.");
+                });
+        };
 
 		// Pull values from modal, write back to Firebase, update UI + map
 		this.saveEditedLayer = function() {
@@ -448,10 +498,9 @@ define(['lodash'], function(_) {
 		if (!confirm("Really delete layer “" + $('#edit-layer-name').val() + "”? This will also remove its polygons from the map.")) {
 			return;
 		}
-
+        const layerRef = dataService.fbAuth2.ref('cartography/layers/' + key);
 		// 1) remove the layer entry
-		dataService.fb.child('layers').child(key).remove(function(err) {
-			if (err) return alert("Delete failed: " + err);
+		dataService.fbAuth2.remove(layerRef).then(() => {
 
 			// 2) if the layer is active, disable it (removes polygons)
 			if (polyState[layerId]) {

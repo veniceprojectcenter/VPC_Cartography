@@ -8,13 +8,13 @@ define(['jquery'], function($) {
       // Firebase method placeholders
       let signInWithEmailAndPasswordFn;
       let signOutFn;
-      let refFn, childFn, updateFn;
+      let refFn, getFn, childFn, updateFn, removeFn, pushFn, setFn, queryFn, orderByChildFn, equalToFn, limitToFirstFn;
   
       async function initFirebase() {
         const [
     { initializeApp },
     { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged },
-    { getDatabase, ref, child, update }
+    { getDatabase, ref, child, update, remove, push, set, get, query, orderByChild, equalTo, limitToFirst }
   ] = await Promise.all([
     import('https://www.gstatic.com/firebasejs/9.22.2/firebase-app.js'),
     import('https://www.gstatic.com/firebasejs/9.22.2/firebase-auth.js'),
@@ -31,6 +31,14 @@ define(['jquery'], function($) {
         refFn = ref;
         childFn = child;
         updateFn = update;
+        removeFn = remove;
+        pushFn = push;
+        setFn = set;
+        queryFn = query;
+        orderByChildFn = orderByChild;
+        equalToFn = equalTo;
+        getFn = get;
+        limitToFirstFn = limitToFirst;
   
         onAuthStateChanged(auth, (user) => {
           fbUser = user;
@@ -41,7 +49,6 @@ define(['jquery'], function($) {
   
       function updateUI(user) {
         if (user) {
-          console.log("User logged in:", user);
           $('#login-form').hide();
           $('#login-text').hide();
           $('#loggedin-username').text(user.email);
@@ -108,6 +115,39 @@ define(['jquery'], function($) {
     this.update = function (ref, data) {
       return updateFn(ref, data);
     };
+
+    this.remove = function (ref) {
+      return removeFn(ref);
+    }
+
+    this.push = function (ref, data) {
+      return pushFn(ref, data);
+    }
+
+    this.set = function (ref, data) {
+      return setFn(ref, data);
+    }
+
+    this.query = function (ref, ...constraints) {
+      return queryFn(ref, ...constraints);
+    }
+
+    this.orderByChild = function (child) {
+      return orderByChildFn(child);
+    }
+
+    this.equalTo = function (value) {
+      return equalToFn(value);
+    }
+
+    this.limitToFirst = function (limit) {
+      return limitToFirstFn(limit);
+    }
+
+    this.get = function (ref) {
+      return getFn(ref);
+    }
+
       // Init Firebase when module is created
       initFirebase();
   
