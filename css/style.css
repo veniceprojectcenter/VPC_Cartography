@@ -72,8 +72,8 @@ html, body
 }
 
 .search-result-item {
-	padding: 6px 10px;
-	cursor: pointer;
+	padding: 8px 12px;
+	cursor: default;
 	border-bottom: 1px solid #eee;
 }
 
@@ -82,7 +82,14 @@ html, body
 }
 
 .search-result-item:hover {
-	background-color: #f5f5f5;
+	background-color: #f9fafc;
+}
+
+.search-result-item .result-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
 }
 
 .search-result-item .result-title {
@@ -92,17 +99,78 @@ html, body
 }
 
 .search-result-item .result-code {
-	display: block;
+	display: inline-block;
 	font-size: 11px;
 	text-transform: uppercase;
-	color: #888;
+	color: #55607a;
+	background-color: #eef0f6;
+	padding: 2px 6px;
+	border-radius: 4px;
+	white-space: nowrap;
 }
 
-.search-result-item .result-maps {
-	display: block;
+.search-result-item .result-map-wrapper {
+	margin-top: 6px;
 	font-size: 11px;
-	color: #555;
-	margin-top: 2px;
+	color: #666;
+}
+
+.search-result-item .result-maps-label {
+	font-size: 10px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: #9aa0b5;
+}
+
+.map-chip-container {
+	margin-top: 4px;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+.map-chip {
+	border: 1px solid #d1d6e3;
+	background-color: #f2f4fa;
+	color: #3b4256;
+	border-radius: 999px;
+	padding: 4px 12px;
+	font-size: 11px;
+	font-family: inherit;
+	line-height: 1.2;
+	cursor: pointer;
+	transition: all 0.2s ease;
+	outline: none;
+}
+
+.map-chip:hover {
+	background-color: #e1e7fb;
+	border-color: #8da2fb;
+	color: #1f3a8a;
+}
+
+.map-chip:focus {
+	box-shadow: 0 0 0 2px rgba(49, 94, 251, 0.3);
+}
+
+.map-chip-current {
+	background-color: #315efb;
+	border-color: #315efb;
+	color: #fff;
+	box-shadow: 0 2px 4px rgba(49, 94, 251, 0.2);
+}
+
+.search-result-item .result-maps-empty {
+	margin-left: 6px;
+	color: #999;
+}
+
+.search-result-item .result-note {
+	display: block;
+	margin-top: 6px;
+	font-size: 10px;
+	color: #a94442;
 }
 
 .search-result-item.result-unavailable {
@@ -112,8 +180,21 @@ html, body
 
 .search-result-item.result-unavailable .result-title,
 .search-result-item.result-unavailable .result-code,
-.search-result-item.result-unavailable .result-maps {
+.search-result-item.result-unavailable .result-map-wrapper,
+.search-result-item.result-unavailable .result-note {
 	color: #bf4c5d;
+}
+
+.search-result-item.result-unavailable .map-chip {
+	border-color: #eba8b7;
+	background-color: #fde5ea;
+	color: #b1445c;
+}
+
+.search-result-item.result-unavailable .map-chip-current {
+	background-color: #b1445c;
+	border-color: #b1445c;
+	color: #fff;
 }
 
 .header-right-side{

@@ -173,7 +173,8 @@ define(['jquery', 'UrlMap', 'Firebase', 'FirebaseAuth','FirebaseAuth-modern', 'R
 		var hasYear = !!mapData && !!mapData.year;
 		var displayName;
 		if (mapData) {
-			displayName = (hasYear ? mapData.year + ' – ' : '') + (mapData.name || mapId);
+			var mapTitle = mapData.name || mapId;
+			displayName = hasYear ? (mapTitle + ' (' + mapData.year + ')') : mapTitle;
 		} else {
 			displayName = mapId;
 		}
@@ -214,7 +215,6 @@ define(['jquery', 'UrlMap', 'Firebase', 'FirebaseAuth','FirebaseAuth-modern', 'R
 					if (a.sortYear !== b.sortYear) return a.sortYear - b.sortYear;
 					return a.sortName.localeCompare(b.sortName);
 				});
-				var mapDisplayNames = mapInfoList.map(function(info) { return info.display; });
 				var availableOnCurrentMap = mapIds.indexOf(dataService.currentMap()) !== -1;
 				matches.push({
 					id: feature.id,
@@ -222,7 +222,7 @@ define(['jquery', 'UrlMap', 'Firebase', 'FirebaseAuth','FirebaseAuth-modern', 'R
 					code: code,
 					layer: props.type,
 					score: bestScore,
-					maps: mapDisplayNames,
+					maps: mapInfoList,
 					availableOnCurrent: availableOnCurrentMap
 				});
 			}
@@ -255,17 +255,54 @@ define(['jquery', 'UrlMap', 'Firebase', 'FirebaseAuth','FirebaseAuth-modern', 'R
 						'class': 'search-result-item',
 						role: 'option'
 					});
-					$item.data('featureId', result.id);
-					$item.data('layerId', result.layer);
 					if (!result.availableOnCurrent) {
 						$item.addClass('result-unavailable');
 					}
-					$('<span>', { 'class': 'result-title', text: result.name }).appendTo($item);
+
+					var $header = $('<div>', { 'class': 'result-header' }).appendTo($item);
+					$('<span>', { 'class': 'result-title', text: result.name }).appendTo($header);
 					if (result.code) {
-						$('<span>', { 'class': 'result-code', text: 'Code: ' + result.code }).appendTo($item);
+						$('<span>', { 'class': 'result-code', text: result.code }).appendTo($header);
 					}
-					var mapsSubtitle = result.maps && result.maps.length ? 'Maps: ' + result.maps.join(', ') : 'Maps: Not linked yet';
-					$('<span>', { 'class': 'result-maps', text: mapsSubtitle }).appendTo($item);
+
+					var $mapsWrapper = $('<div>', { 'class': 'result-map-wrapper' }).appendTo($item);
+					var hasMaps = Array.isArray(result.maps) && result.maps.length > 0;
+					$('<span>', {
+						'class': 'result-maps-label',
+						text: hasMaps ? 'Open on:' : 'Maps:'
+					}).appendTo($mapsWrapper);
+
+					if (hasMaps) {
+						var $chipContainer = $('<div>', { 'class': 'map-chip-container' }).appendTo($mapsWrapper);
+						result.maps.forEach(function(mapInfo) {
+							var displayName = mapInfo.display || mapInfo.id;
+							var $chip = $('<button>', {
+								type: 'button',
+								'class': 'map-chip',
+								text: displayName
+							});
+							$chip.data('mapId', mapInfo.id);
+							$chip.data('featureId', result.id);
+							$chip.data('layerId', result.layer);
+							if (mapInfo.id === dataService.currentMap()) {
+								$chip.addClass('map-chip-current');
+							}
+							$chipContainer.append($chip);
+						});
+					} else {
+						$('<span>', {
+							'class': 'result-maps-empty',
+							text: 'Not linked yet'
+						}).appendTo($mapsWrapper);
+					}
+
+					if (!result.availableOnCurrent && hasMaps) {
+						$('<span>', {
+							'class': 'result-note',
+							text: 'Select a map above to load this feature.'
+						}).appendTo($item);
+					}
+
 					$resultsList.append($item);
 				});
 				$resultsList.addClass('visible');
@@ -285,10 +322,10 @@ define(['jquery', 'UrlMap', 'Firebase', 'FirebaseAuth','FirebaseAuth-modern', 'R
 					hideResults();
 					$(this).val('');
 				} else if (event.key === 'Enter') {
-					var $first = $resultsList.children('.search-result-item').first();
-					if ($first.length) {
+					var $firstChip = $resultsList.find('.map-chip').first();
+					if ($firstChip.length) {
 						event.preventDefault();
-						$first.trigger('click');
+						$firstChip.trigger('click');
 					}
 				}
 			});
@@ -297,14 +334,22 @@ define(['jquery', 'UrlMap', 'Firebase', 'FirebaseAuth','FirebaseAuth-modern', 'R
 				e.preventDefault();
 			});
 
-			$resultsList.on('click', '.search-result-item', function() {
-				var featureId = $(this).data('featureId');
-				var featureName = $(this).find('.result-title').text();
+			$resultsList.on('click', '.map-chip', function(event) {
+				event.preventDefault();
+				event.stopPropagation();
+				var $chip = $(this);
+				var featureId = $chip.data('featureId');
+				var mapId = $chip.data('mapId');
+				var featureName = $chip.closest('.search-result-item').find('.result-title').text();
 				hideResults();
 				if (featureName) {
 					$searchInput.val(featureName);
 				}
-				layerManager.focusFeature(featureId);
+				if (mapId && mapId !== dataService.currentMap()) {
+					mapManager.switchMap(mapId, featureId);
+				} else {
+					layerManager.focusFeature(featureId);
+				}
 			});
 
 			$(document).on('click', function(e) {

@@ -124,8 +124,10 @@ define(['lodash'], function(_) {
 
                     $('.layers-select').append('<option value="'+data.id+'">'+data.name+'</option>');
 
-                    if (defaultLayerLookup[data.id]) {
+                    if (data.color) {
                         layerColors[data.id] = data.color;
+                    }
+                    if (defaultLayerLookup[data.id]) {
                         delete defaultLayerLookup[data.id];
                     }
                 });
@@ -321,8 +323,12 @@ define(['lodash'], function(_) {
         this.enableLayer = function(type, color, selectedFeatureId) {
             if (color) {
                 layerColors[type] = color;
-            } else {
+            }
+            if (!color) {
                 color = layerColors[type];
+            }
+            if (!color) {
+                color = '#3388ff';
             }
             
             // This is used way down in the "visible on x other maps" loop
@@ -483,6 +489,13 @@ define(['lodash'], function(_) {
                 self.disableLayer(layerName);
                 self.enableLayer(layerName, undefined, selectedFeatureId);
             });
+            if (selectedFeatureId) {
+                var selectedFeature = dataService.featureById(selectedFeatureId);
+                var targetLayerId = selectedFeature && selectedFeature.properties && selectedFeature.properties.type;
+                if (targetLayerId && !polyState[targetLayerId]) {
+                    self.enableLayer(targetLayerId, undefined, selectedFeatureId);
+                }
+            }
         };
         
         this.updateAutocomplete = function() {
