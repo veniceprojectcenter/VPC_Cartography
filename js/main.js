@@ -90,30 +90,171 @@ define(['jquery', 'UrlMap', 'Firebase', 'FirebaseAuth','FirebaseAuth-modern', 'R
 	var downloader = new Downloader();
 	var rectDrawer = new RectDrawer();
 	var polyDrawer = new PolyDrawer(mapManager, layerManager, dataService);
+	var SEARCH_MATCH_THRESHOLD = 0.8;
+	var SEARCH_RESULTS_LIMIT = 12;
 	
-	
+
 	/* 
 	 * Load up the autocomplete bar with all the names
 	 */
+	function levenshteinDistance(a, b) {
+		a = a || '';
+		b = b || '';
+		var matrix = [];
+		var i;
+		for (i = 0; i <= b.length; i++) {
+			matrix[i] = [i];
+		}
+		for (var j = 0; j <= a.length; j++) {
+			matrix[0][j] = j;
+		}
+		for (i = 1; i <= b.length; i++) {
+			for (var k = 1; k <= a.length; k++) {
+				if (b.charAt(i - 1) === a.charAt(k - 1)) {
+					matrix[i][k] = matrix[i - 1][k - 1];
+				} else {
+					matrix[i][k] = Math.min(
+						matrix[i - 1][k] + 1,
+						matrix[i][k - 1] + 1,
+						matrix[i - 1][k - 1] + 1
+					);
+				}
+			}
+		}
+		return matrix[b.length][a.length];
+	}
+
+	function similarityScore(a, b) {
+		if (!a && !b) return 1;
+		var maxLen = Math.max(a.length, b.length);
+		if (!maxLen) return 0;
+		return 1 - (levenshteinDistance(a, b) / maxLen);
+	}
+
+	function matchScore(term, target) {
+		if (!term || !target) return 0;
+		if (target.indexOf(term) !== -1) {
+			return 1;
+		}
+		return similarityScore(term, target);
+	}
+
+	function buildSearchMatches(term) {
+		if (!term) return [];
+		var matches = [];
+		var normalizedTerm = term.toLowerCase();
+		var allFeatures = dataService.all();
+		for (var i = 0; i < allFeatures.length; i++) {
+			var feature = allFeatures[i];
+			if (!feature || !feature.properties) continue;
+			var props = feature.properties;
+			var name = (props.name || '').trim();
+			var code = (props.code || '').trim();
+			var lowerName = name.toLowerCase();
+			var lowerCode = code.toLowerCase();
+			var nameScore = matchScore(normalizedTerm, lowerName);
+			var codeScore = matchScore(normalizedTerm, lowerCode);
+			var bestScore = Math.max(nameScore, codeScore);
+			if (bestScore >= SEARCH_MATCH_THRESHOLD) {
+				matches.push({
+					id: feature.id,
+					name: name || '(Untitled Feature)',
+					code: code,
+					layer: props.type,
+					score: bestScore
+				});
+			}
+		}
+		matches.sort(function(a, b) {
+			if (b.score !== a.score) return b.score - a.score;
+			return a.name.localeCompare(b.name);
+		});
+		return matches.slice(0, SEARCH_RESULTS_LIMIT);
+	}
+
+	function setupSearchUi() {
+		$(document).ready(function() {
+			var $searchInput = $('#mini-search');
+			var $resultsList = $('#search-results');
+			if (!$searchInput.length || !$resultsList.length) return;
+
+			function hideResults() {
+				$resultsList.empty().removeClass('visible');
+			}
+
+			function renderResults(results) {
+				$resultsList.empty();
+				if (!results.length) {
+					hideResults();
+					return;
+				}
+				results.forEach(function(result) {
+					var $item = $('<li>', {
+						'class': 'search-result-item',
+						role: 'option'
+					});
+					$item.data('featureId', result.id);
+					$item.data('layerId', result.layer);
+					$('<span>', { 'class': 'result-title', text: result.name }).appendTo($item);
+					if (result.code) {
+						$('<span>', { 'class': 'result-code', text: 'Code: ' + result.code }).appendTo($item);
+					}
+					$resultsList.append($item);
+				});
+				$resultsList.addClass('visible');
+			}
+
+			$searchInput.on('input', function() {
+				var term = $(this).val().trim().toLowerCase();
+				if (!term) {
+					hideResults();
+					return;
+				}
+				renderResults(buildSearchMatches(term));
+			});
+
+			$searchInput.on('keydown', function(event) {
+				if (event.key === 'Escape') {
+					hideResults();
+					$(this).val('');
+				} else if (event.key === 'Enter') {
+					var $first = $resultsList.children('.search-result-item').first();
+					if ($first.length) {
+						event.preventDefault();
+						$first.trigger('click');
+					}
+				}
+			});
+
+			$resultsList.on('mousedown', function(e) {
+				e.preventDefault();
+			});
+
+			$resultsList.on('click', '.search-result-item', function() {
+				var featureId = $(this).data('featureId');
+				var featureName = $(this).find('.result-title').text();
+				hideResults();
+				if (featureName) {
+					$searchInput.val(featureName);
+				}
+				layerManager.focusFeature(featureId);
+			});
+
+			$(document).on('click', function(e) {
+				if (!$(e.target).closest('.search-wrapper').length) {
+					hideResults();
+				}
+			});
+		});
+	}
+
 	function initializeSearch() {
-		var autocompleteNames = [];
-		
 		fb.child('features').on('child_added', function (snapshot) {
 			var feature = snapshot.val();
 			feature.id = snapshot.key();
 			dataService.push(feature);
-			autocompleteNames.push(feature.properties.name);
 		});
-		
-		$(document).ready(function(){
-			// The autocomplete plugin accesses its source by reference, so when a new
-			// value is added to autocompleteNames the plugin will pick it up
-			$(".search").autocomplete({ source: autocompleteNames });
-			$(".search").on("autocompleteselect", function (event, ui) {
-				var landmark = dataService.findData(ui.item.value);
-				map.setView(landmark.properties.center, 8 /* LOL IGNORE ZOOM (TODO: why?) */, { animate: true });
-			});
-		});
+		setupSearchUi();
 	}
 	
 	/* 

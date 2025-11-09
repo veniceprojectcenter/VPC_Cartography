@@ -10,67 +10,116 @@ define(['lodash'], function(_) {
             selectedPoly = null,
             selectedData = null,
             activeLandmarksObj = {}; // keyed by feature id
+
+        function setLayerButtonState(layerId, isActive) {
+            var $button = $('#' + layerId + '-layer');
+            if (!$button.length) return;
+            $button.toggleClass('layer-active', !!isActive);
+            $button.toggleClass('layer-inactive', !isActive);
+        }
                     
+        function ensureLayerParentMenu(parentName) {
+            var parentId = parentName.replace(/\s/g,'');
+            var $existing = $('#' + parentId + '-menu');
+            if ($existing.length) {
+                return $existing;
+            }
+            var $group = $('<li>', { 'class': 'dropdown-submenu layer-group' });
+            var $label = $('<a>', { href: '#', text: parentName });
+            var $menu = $('<ul>', {
+                id: parentId + '-menu',
+                'class': 'dropdown-menu'
+            });
+            $group.append($label).append($menu);
+
+            var $newLayerTrigger = $('#new-layer-menu');
+            if ($newLayerTrigger.length) {
+                $newLayerTrigger.before($group);
+            } else {
+                $('.layers-menu').append($group);
+            }
+            return $menu;
+        }
+
+        function insertLayerMenuItem($menu, $item) {
+            var inserted = false;
+            var newName = ($item.data('layerName') || '').toString();
+            $menu.children('li.layer-menu-item').each(function() {
+                var $existing = $(this);
+                var existingName = ($existing.data('layerName') || '').toString();
+                if (newName.localeCompare(existingName) < 0) {
+                    $existing.before($item);
+                    inserted = true;
+                    return false;
+                }
+            });
+
+            if (!inserted) {
+                var $newLayerLink = $menu.children('#new-layer-menu');
+                if ($newLayerLink.length) {
+                    $newLayerLink.before($item);
+                } else {
+                    $menu.append($item);
+                }
+            }
+        }
+
         /* Create a menu item for each layer
         */
         this.initMenu = function () {
-  dataService.get('layers', function (snapshot) {
-    var data = snapshot.val();
-    $(document).ready(function() {
-      // build one <li> containing BOTH the toggle-anchor and a tiny edit-button
-      var loggedIn = document.getElementById('drawmode').style.display !== 'none';
-      var newOption = ''
-    + '<li role="presentation">'
-    +   '<a role="menuitem" id="'+data.id+'-layer" href="#" class="layer-toggle">'
-    +     data.name
-    +   '</a>';
-    if (loggedIn) {
-        newOption += ' <a href="#" '
-            + 'class="edit-layer-btn" '
-            + 'data-layer-id="'+data.id+'" '
-            + 'style="font-size:0.8em; margin-left:6px;"'
-            + '>✎</a>';
-    }
-    newOption += '</li>';
+            dataService.get('layers', function (snapshot) {
+                var data = snapshot.val();
+                $(document).ready(function() {
+                    var loggedIn = document.getElementById('drawmode').style.display !== 'none';
+                    var $item = $('<li>', {
+                        role: 'presentation',
+                        'class': 'layer-menu-item',
+                        'data-layer-name': (data.name || '').toLowerCase()
+                    });
 
-      // insert into whichever menu
-      if (data.parent) {
-        var parentId = data.parent.replace(/\s/g,'');
-        if (!$('#'+parentId+'-menu').length) {
-          // … your submenu-creation code …
-        }
-        $('#'+parentId+'-menu').append(newOption);
-      } else {
-        $('.layers-menu').append(newOption);
-      }
+                    var $toggle = $('<a>', {
+                        role: 'menuitem',
+                        id: data.id + '-layer',
+                        href: '#',
+                        'class': 'layer-toggle layer-inactive',
+                        text: data.name
+                    });
+                    $toggle.on('click', self.toggleLayer.bind(self, data.id, data.color));
+                    $item.append($toggle);
 
-      // remove loading state
-      $('.layers-menu').removeClass('loading');
+                    if (loggedIn) {
+                        var $editButton = $('<a>', {
+                            href: '#',
+                            'class': 'edit-layer-btn',
+                            'data-layer-id': data.id,
+                            text: '✎'
+                        }).css({ fontSize: '0.8em', marginLeft: '6px' });
+                        $editButton.on('click', function(e) {
+                            e.preventDefault();
+                            self.showEditLayerModal(data.id);
+                        });
+                        $item.append($editButton);
+                    }
 
-      // wire up the toggle on the name
-      $('#' + data.id + '-layer')
-        .click(self.toggleLayer.bind(self, data.id, data.color));
+                    var $targetMenu;
+                    if (data.parent) {
+                        $targetMenu = ensureLayerParentMenu(data.parent);
+                    } else {
+                        $targetMenu = $('.layers-menu');
+                    }
 
-      // wire up the tiny edit button
-      $('.edit-layer-btn[data-layer-id="'+data.id+'"]')
-        .on('click', function(e){
-          e.preventDefault();
-          self.showEditLayerModal(data.id);
-        });
+                    insertLayerMenuItem($targetMenu, $item);
+                    $('.layers-menu').removeClass('loading');
 
-      // also keep your <select> in sync
-      $('.layers-select').append(
-        '<option value="'+data.id+'">'+data.name+'</option>'
-      );
+                    $('.layers-select').append('<option value="'+data.id+'">'+data.name+'</option>');
 
-      // default-enabled color logic stays the same…
-      if (defaultEnabledLayer && data.id == defaultEnabledLayer) {
-        layerColors[data.id] = data.color;
-        defaultEnabledLayer = undefined;
-      }
-    });
-  });
-};
+                    if (defaultEnabledLayer && data.id === defaultEnabledLayer) {
+                        layerColors[data.id] = data.color;
+                        defaultEnabledLayer = undefined;
+                    }
+                });
+            });
+        };
         
         this.mostRecentlyEnabled = function() {
             return enabledLayers.length ? enabledLayers[enabledLayers.length-1] : null;
@@ -359,7 +408,7 @@ define(['lodash'], function(_) {
                 }
             });
 
-            $('#'+type+'-layer').css('font-weight', 600);
+            setLayerButtonState(type, true);
         };
         
         this.disableLayer = function(type) {
@@ -374,10 +423,41 @@ define(['lodash'], function(_) {
             
             enabledLayers.splice(enabledLayers.indexOf(type), 1);
             
-            $('#'+type+'-layer').css('font-weight', 400);
+            setLayerButtonState(type, false);
 
             delete polyState[type];
         };
+
+        this.focusFeature = function(featureId) {
+            if (!featureId) return;
+            var feature = dataService.featureById(featureId);
+            if (!feature || !feature.properties) return;
+            var layerId = feature.properties.type;
+            if (!layerId) return;
+
+            if (!polyState[layerId]) {
+                self.enableLayer(layerId, undefined, featureId);
+                return;
+            }
+
+            var targetPoly;
+            for (var i = 0; i < polyState[layerId].length; i++) {
+                if (polyState[layerId][i].featureId === featureId) {
+                    targetPoly = polyState[layerId][i];
+                    break;
+                }
+            }
+
+            if (targetPoly) {
+                targetPoly.fire('click');
+                if (feature.properties.center && mapManager.map) {
+                    mapManager.map.setView(feature.properties.center).setZoom(5);
+                }
+            } else {
+                self.enableLayer(layerId, undefined, featureId);
+            }
+        };
+
         var myEnableLayer  = self.enableLayer;
         var myDisableLayer = self.disableLayer;
         
@@ -391,19 +471,7 @@ define(['lodash'], function(_) {
         };
         
         this.updateAutocomplete = function() {
-            // Update autocomplete based on selected layers
-            var activeLandmarks; 
-            if (Object.keys(polyState).length === 0) {
-                activeLandmarks = dataService.all();
-            } else {
-                activeLandmarks = Object.keys(activeLandmarksObj).map(function(k){ return activeLandmarksObj[k]; });
-            }
-    
-            $('.search').autocomplete({ 
-                source: activeLandmarks.map(function(feature) {
-                    return feature.properties.name;
-                })
-            });
+            // Legacy no-op: search results managed via custom fuzzy search UI.
         };
 
  
@@ -529,4 +597,3 @@ define(['lodash'], function(_) {
     
     return LayerManager;
 });
-

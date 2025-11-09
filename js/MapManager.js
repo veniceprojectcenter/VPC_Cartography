@@ -7,6 +7,64 @@ define(['jquery', 'Leaflet', 'LeafletMiniMap'], function($, L) {
 		var switchFunc = function() {};
 		
 		var mainLayer, miniMap;
+
+		function markActiveMap(newMapId) {
+			$('.map-menu-link').addClass('map-inactive').removeClass('map-active');
+			if (newMapId) {
+				$('#' + newMapId + '-map').removeClass('map-inactive').addClass('map-active');
+			}
+		}
+
+		function insertMapMenuItem($menu, $item, year) {
+			year = parseInt(year, 10) || 0;
+			var inserted = false;
+			$menu.children('li.map-menu-item').each(function() {
+				var existingYear = parseInt($(this).data('mapYear'), 10) || 0;
+				if (year < existingYear) {
+					$(this).before($item);
+					inserted = true;
+					return false;
+				}
+			});
+
+			if (!inserted) {
+				var $newMapLink = $menu.children('#new-map-menu');
+				if ($newMapLink.length) {
+					$newMapLink.before($item);
+				} else {
+					$menu.append($item);
+				}
+			}
+		}
+
+		function ensureMapParentMenu(parentLabel) {
+			var strippedParentName = parentLabel.replace(/\s/g, '');
+			var $menu = $('#' + strippedParentName + '-menu');
+			if ($menu.length) {
+				return $menu;
+			}
+			var $group = $('<li>', { 'class': 'dropdown-submenu map-group' });
+			var $title = $('<a>', { href: '#', text: parentLabel });
+			$menu = $('<ul>', {
+				id: strippedParentName + '-menu',
+				'class': 'dropdown-menu'
+			});
+			$group.append($title).append($menu);
+
+			var $newMapNode = $('#new-map-menu');
+			if ($newMapNode.length) {
+				$newMapNode.before($group);
+			} else {
+				$('.maps-menu').append($group);
+			}
+
+			var $parentSelect = $('#new-map-parent-other');
+			if ($parentSelect.length) {
+				$parentSelect.before('<option value="' + parentLabel + '">' + parentLabel + '</option>');
+			}
+
+			return $menu;
+		}
 		
 		function shiftBounds (bounds) {
 			return [[bounds[0][0], bounds[0][1] + 360], [bounds[1][0], bounds[1][1] + 360]];
@@ -54,8 +112,7 @@ define(['jquery', 'Leaflet', 'LeafletMiniMap'], function($, L) {
 				dataService.setMap(newMapId);
 				switchFunc(mapSnap.val(), selectedFeatureId);
 				
-				$('.map-menu-link').css('font-weight', 400);
-				$('#'+newMapId+'-map').css('font-weight', 600);
+				markActiveMap(newMapId);
 			});
 		};
 		
@@ -71,32 +128,34 @@ define(['jquery', 'Leaflet', 'LeafletMiniMap'], function($, L) {
 				maps[snapshot.key()] = data;
 					
 				$(document).ready(function() {
-					var newOption = '<li role="presentation"><a role="menuitem"'+(data.id === dataService.currentMap()  ? ' style="font-weight: 600;"' : '')+' class="map-menu-link" id="'+data.id+'-map" href="#">'+self.mapLabel(data.id)+'</a></li>';
-			
-					if (data.parent) {
-						var strippedParentName = data.parent.replace(/\s/g, '');
-						if ($('#'+strippedParentName+'-menu').length === 0) {
-							var newGroup = ' <li class="dropdown-submenu"><a href="#">'+data.parent+'</a><ul id="'+strippedParentName+'-menu" class="dropdown-menu"></ul></li>';
-							$('#new-map-parent-other').before('<option value="'+data.parent+'">'+data.parent+'</option>');
-			
-							if ($('#new-map-menu').length > 0) {
-								$('#new-map-menu').before(newGroup);
-							} else {
-								$('.maps-menu').append(newGroup);
-							}
-						}
-						$('#'+strippedParentName+'-menu').append(newOption);
-					} else { // If the object has no parent
-						if ($('#new-map-menu').length > 0) {
-							$('#new-map-menu').before(newOption);
-						} else {
-							$('.maps-menu').append(newOption);
-						}
+					var isActive = data.id === dataService.currentMap();
+					var $item = $('<li>', {
+						role: 'presentation',
+						'class': 'map-menu-item',
+						'data-map-year': data.year
+					});
+					var $link = $('<a>', {
+						role: 'menuitem',
+						id: data.id + '-map',
+						href: '#',
+						'class': 'map-menu-link map-inactive',
+						html: self.mapLabel(data.id)
+					});
+					if (isActive) {
+						$link.removeClass('map-inactive').addClass('map-active');
 					}
-					
+					$link.on('click', self.switchMap.bind(this, data.id));
+					$item.append($link);
+
+					var $targetMenu;
+					if (data.parent) {
+						$targetMenu = ensureMapParentMenu(data.parent);
+					} else {
+						$targetMenu = $('.maps-menu');
+					}
+					insertMapMenuItem($targetMenu, $item, data.year);
+
 					$('.maps-menu').removeClass('loading');
-			
-					$('#' + data.id + '-map').click(self.switchMap.bind(this, data.id));
 					$('.maps-select').append('<option value="'+data.id+'">'+data.name+'</option>');
 				});
 			});
