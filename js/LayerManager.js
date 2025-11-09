@@ -11,6 +11,17 @@ define(['lodash'], function(_) {
             selectedData = null,
             activeLandmarksObj = {}; // keyed by feature id
 
+        var defaultEnabledLayers = [];
+        if (Array.isArray(defaultEnabledLayer)) {
+            defaultEnabledLayers = defaultEnabledLayer.slice();
+        } else if (defaultEnabledLayer) {
+            defaultEnabledLayers = [defaultEnabledLayer];
+        }
+        var defaultLayerLookup = defaultEnabledLayers.reduce(function(acc, layerId) {
+            acc[layerId] = true;
+            return acc;
+        }, {});
+
         function setLayerButtonState(layerId, isActive) {
             var $button = $('#' + layerId + '-layer');
             if (!$button.length) return;
@@ -113,9 +124,9 @@ define(['lodash'], function(_) {
 
                     $('.layers-select').append('<option value="'+data.id+'">'+data.name+'</option>');
 
-                    if (defaultEnabledLayer && data.id === defaultEnabledLayer) {
+                    if (defaultLayerLookup[data.id]) {
                         layerColors[data.id] = data.color;
-                        defaultEnabledLayer = undefined;
+                        delete defaultLayerLookup[data.id];
                     }
                 });
             });
@@ -131,6 +142,10 @@ define(['lodash'], function(_) {
         
         this.selectedPoly = function() {
             return selectedPoly;
+        };
+
+        this.getEnabledLayers = function() {
+            return enabledLayers.slice();
         };
         
         /* Add a new layer to the map.

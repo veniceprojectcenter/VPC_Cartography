@@ -4,6 +4,15 @@ define([], function() {
   	var DEFAULT_MAP = 'debarbari';
   	
     var urlMapEl = {}
+    function parseLayerParam(layerValue) {
+      if (!layerValue) return [];
+      return layerValue.split('|').map(function(value) {
+        return (value || '').trim();
+      }).filter(function(value) {
+        return value.length > 0;
+      });
+    }
+
     urlMapEl.getUrlParameter = function getUrlParameter(sParam) {
         var sPageURL = decodeURIComponent(window.location.search.substring(1)),
             sURLVariables = sPageURL.split('&'),
@@ -20,13 +29,30 @@ define([], function() {
     };
   
     urlMapEl.map     = urlMapEl.getUrlParameter('map');
-    urlMapEl.layer   = urlMapEl.getUrlParameter('layer');
+    var rawLayerParam = urlMapEl.getUrlParameter('layer');
+    urlMapEl.layers  = parseLayerParam(rawLayerParam);
+    urlMapEl.layer   = urlMapEl.layers.length ? urlMapEl.layers[0] : rawLayerParam;
     urlMapEl.feature = urlMapEl.getUrlParameter('feature');
+
+    urlMapEl.setPrimaryLayer = function(layerId) {
+      if (!layerId) return;
+      urlMapEl.layers = urlMapEl.layers || [];
+      var idx = urlMapEl.layers.indexOf(layerId);
+      if (idx > 0) {
+        urlMapEl.layers.splice(idx, 1);
+      }
+      if (idx !== 0) {
+        urlMapEl.layers.unshift(layerId);
+      } else if (idx === -1) {
+        urlMapEl.layers.unshift(layerId);
+      }
+      urlMapEl.layer = layerId;
+    };
 
     urlMapEl.parseParameters = function(){
       if (urlMapEl.feature) {
         console.log("Switch to feature " + urlMapEl.feature);
-        if (!urlMapEl.layer) urlMapEl.layer = 'island';
+        if (!urlMapEl.layer) urlMapEl.setPrimaryLayer('island');
         if (!urlMapEl.map  ) urlMapEl.map   = DEFAULT_MAP; //'debarbari-map';
     
       } else if (urlMapEl.layer) {
@@ -42,6 +68,10 @@ define([], function() {
       } else {
         console.log("NO API CALLED");
         urlMapEl.map   = DEFAULT_MAP;
+      }
+
+      if (urlMapEl.layer && (!urlMapEl.layers || urlMapEl.layers.length === 0)) {
+        urlMapEl.setPrimaryLayer(urlMapEl.layer);
       }
     };
   

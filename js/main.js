@@ -42,6 +42,7 @@ define(['jquery', 'UrlMap', 'Firebase', 'FirebaseAuth','FirebaseAuth-modern', 'R
 	/// CONSTANTS
 	var DEFAULT_MAP = 'debarbari';
 	var FIREBASE_URL = 'https://vpc.firebaseio.com/cartography';
+	var SHARE_BASE_URL = 'https://cartography.veniceprojectcenter.org/';
 	
 	/// EXTERNAL LIBRARIES
 	var fb = new Firebase(FIREBASE_URL);
@@ -61,30 +62,54 @@ define(['jquery', 'UrlMap', 'Firebase', 'FirebaseAuth','FirebaseAuth-modern', 'R
 	var urlMap = new UrlMap();
 	var dataService = new DataService(fb, fbAuth, urlMap.map, fbAuth2); //.DEFAULT_MAP);
 	var mapManager = new MapManager(dataService);
-	var layerManager = new LayerManager(dataService, mapManager, urlMap.layer);
-	mapManager.onSwitch(function(){
-	  layerManager.reload();
-	  if (urlMap.layer) {
+	var defaultUrlLayers = (urlMap.layers && urlMap.layers.length) ? urlMap.layers.slice() : (urlMap.layer ? [urlMap.layer] : []);
+	var layerManager = new LayerManager(dataService, mapManager, defaultUrlLayers);
+	mapManager.onSwitch(function(mapData, selectedFeatureId){
+	  layerManager.reload(mapData, selectedFeatureId);
+	  if (defaultUrlLayers.length) {
+		  var layersToEnable = defaultUrlLayers.slice();
+		  defaultUrlLayers = [];
 		  setTimeout(function(){
-  		  console.log("Abilito Layer " + urlMap.layer);
-  		  // self.disableLayer(pleaseEnable);
-				// self.enableLayer(defaultEnabledLayer, undefined, selectedFeatureId);
-				if (urlMap.feature) {
-				  console.log("Cerco feature", urlMap.feature);
-				  fb.child('features').once('value', function (snapshot) {
-				    snapshot.forEach(function(childSnapshot) {
-				      if (childSnapshot.child('properties').child('name').val() == urlMap.feature) {
-				        console.log("Trovata feature", childSnapshot.val());
-				        layerManager.enableLayer(urlMap.layer, undefined, childSnapshot.key());
-				        return;
-				      }
-				    });
-				  });
-				} else
-				  layerManager.enableLayer(urlMap.layer);
-  		}, 1250);
+	  		  console.log("Enable layers from URL", layersToEnable);
+	  		  enableLayersFromUrl(layersToEnable);
+		}, 1250);
 		}
 	});
+
+	function enableLayersFromUrl(layers) {
+		if (!layers || !layers.length) return;
+		var uniqueLayers = [];
+		layers.forEach(function(layerId) {
+			if (layerId && uniqueLayers.indexOf(layerId) === -1) {
+				uniqueLayers.push(layerId);
+			}
+		});
+		if (!uniqueLayers.length) return;
+		var primaryLayer = uniqueLayers[0];
+		var additionalLayers = uniqueLayers.slice(1);
+		if (urlMap.feature) {
+			fb.child('features').once('value', function (snapshot) {
+				var featureFound = false;
+				snapshot.forEach(function(childSnapshot) {
+					if (childSnapshot.child('properties').child('name').val() == urlMap.feature) {
+						featureFound = true;
+						layerManager.enableLayer(primaryLayer, undefined, childSnapshot.key());
+						return true;
+					}
+				});
+				if (!featureFound) {
+					layerManager.enableLayer(primaryLayer);
+				}
+				additionalLayers.forEach(function(layerId) {
+					layerManager.enableLayer(layerId);
+				});
+			});
+		} else {
+			uniqueLayers.forEach(function(layerId) {
+				layerManager.enableLayer(layerId);
+			});
+		}
+	}
 
 	/// EXTRA FUNCTIONALITY
 	var downloader = new Downloader();
@@ -298,6 +323,35 @@ define(['jquery', 'UrlMap', 'Firebase', 'FirebaseAuth','FirebaseAuth-modern', 'R
 		});
 		setupSearchUi();
 	}
+
+	function buildShareUrl() {
+		var params = [];
+		var currentMapId = dataService.currentMap();
+		if (currentMapId) {
+			params.push('map=' + encodeURIComponent(currentMapId));
+		}
+		var enabledLayers = layerManager.getEnabledLayers();
+		if (enabledLayers.length) {
+			params.push('layer=' + encodeURIComponent(enabledLayers.join('|')));
+		}
+		var query = params.length ? ('?' + params.join('&')) : '';
+		return SHARE_BASE_URL + query;
+	}
+
+	function shareCurrentView() {
+		var shareUrl = buildShareUrl();
+		if (navigator.clipboard && navigator.clipboard.writeText) {
+			navigator.clipboard.writeText(shareUrl)
+				.then(function() {
+					alert('Shareable link copied to clipboard!');
+				})
+				.catch(function() {
+					window.prompt('Copy this shareable URL', shareUrl);
+				});
+		} else {
+			window.prompt('Copy this shareable URL', shareUrl);
+		}
+	}
 	
 	/* 
 	 * Show the login form
@@ -358,6 +412,7 @@ define(['jquery', 'UrlMap', 'Firebase', 'FirebaseAuth','FirebaseAuth-modern', 'R
 		$("#select").click(rectDrawer.initialize.bind(rectDrawer, downloader.downloadSection));
 
 		$('#drawmode').click(polyDrawer.startPolyMode);
+		$('#share').click(shareCurrentView);
 
 		$('#login-link').click(function () {
 			showLoginForm('login');
@@ -405,6 +460,7 @@ define(['jquery', 'UrlMap', 'Firebase', 'FirebaseAuth','FirebaseAuth-modern', 'R
 		$('#dlbutton').tooltip({ placement: 'bottom' });
 		$('#select').tooltip({ placement: 'bottom' });
 		$('#drawmode').tooltip({ placement: 'bottom' });
+		$('#share').tooltip({ placement: 'bottom' });
 		$('#plus-sign').tooltip({ placement: 'bottom' });
 		$('#layers').tooltip({ placement: 'bottom' });
 		$('#maps').tooltip({ placement: 'bottom' });
