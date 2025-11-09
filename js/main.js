@@ -139,6 +139,27 @@ define(['jquery', 'UrlMap', 'Firebase', 'FirebaseAuth','FirebaseAuth-modern', 'R
 		return similarityScore(term, target);
 	}
 
+	function resolveMapInfo(mapId) {
+		if (!mapId) {
+			return null;
+		}
+		var mapData = mapManager.getMap(mapId);
+		var yearNum = mapData && parseInt(mapData.year, 10);
+		var hasYear = !!mapData && !!mapData.year;
+		var displayName;
+		if (mapData) {
+			displayName = (hasYear ? mapData.year + ' – ' : '') + (mapData.name || mapId);
+		} else {
+			displayName = mapId;
+		}
+		return {
+			id: mapId,
+			display: displayName,
+			sortYear: isNaN(yearNum) ? Number.MAX_SAFE_INTEGER : yearNum,
+			sortName: (mapData && mapData.name) || mapId
+		};
+	}
+
 	function buildSearchMatches(term) {
 		if (!term) return [];
 		var matches = [];
@@ -152,16 +173,32 @@ define(['jquery', 'UrlMap', 'Firebase', 'FirebaseAuth','FirebaseAuth-modern', 'R
 			var code = (props.code || '').trim();
 			var lowerName = name.toLowerCase();
 			var lowerCode = code.toLowerCase();
+			var mapIds = Array.isArray(props.maps) ? props.maps.slice() : [];
 			var nameScore = matchScore(normalizedTerm, lowerName);
 			var codeScore = matchScore(normalizedTerm, lowerCode);
 			var bestScore = Math.max(nameScore, codeScore);
 			if (bestScore >= SEARCH_MATCH_THRESHOLD) {
+				var mapInfoList = mapIds.map(function(mapId) {
+					return resolveMapInfo(mapId) || {
+						id: mapId,
+						display: mapId,
+						sortYear: Number.MAX_SAFE_INTEGER,
+						sortName: mapId
+					};
+				}).sort(function(a, b) {
+					if (a.sortYear !== b.sortYear) return a.sortYear - b.sortYear;
+					return a.sortName.localeCompare(b.sortName);
+				});
+				var mapDisplayNames = mapInfoList.map(function(info) { return info.display; });
+				var availableOnCurrentMap = mapIds.indexOf(dataService.currentMap()) !== -1;
 				matches.push({
 					id: feature.id,
 					name: name || '(Untitled Feature)',
 					code: code,
 					layer: props.type,
-					score: bestScore
+					score: bestScore,
+					maps: mapDisplayNames,
+					availableOnCurrent: availableOnCurrentMap
 				});
 			}
 		}
@@ -195,10 +232,15 @@ define(['jquery', 'UrlMap', 'Firebase', 'FirebaseAuth','FirebaseAuth-modern', 'R
 					});
 					$item.data('featureId', result.id);
 					$item.data('layerId', result.layer);
+					if (!result.availableOnCurrent) {
+						$item.addClass('result-unavailable');
+					}
 					$('<span>', { 'class': 'result-title', text: result.name }).appendTo($item);
 					if (result.code) {
 						$('<span>', { 'class': 'result-code', text: 'Code: ' + result.code }).appendTo($item);
 					}
+					var mapsSubtitle = result.maps && result.maps.length ? 'Maps: ' + result.maps.join(', ') : 'Maps: Not linked yet';
+					$('<span>', { 'class': 'result-maps', text: mapsSubtitle }).appendTo($item);
 					$resultsList.append($item);
 				});
 				$resultsList.addClass('visible');
