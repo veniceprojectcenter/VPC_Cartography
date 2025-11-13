@@ -67,14 +67,19 @@ gtag('config', 'G-YDD2WRSC5V');
 	<!-- Map Container -->
 	<div id="map"></div>
 	
-	<!-- Top toolbar -->
-	<div class="header" id="mini-header">
-		<div class="search-wrapper">
-			<input class="search form-control" id="mini-search" placeholder="Search..." />
-			<ul id="search-results" class="search-results" role="listbox"></ul>
-		</div>
-		<div class="header-right-side">
-			<div class="btn-group">
+		<!-- Top toolbar -->
+		<div class="header" id="mini-header">
+			<div class="search-wrapper">
+				<input class="search form-control" id="mini-search" placeholder="Search..." />
+				<ul id="search-results" class="search-results" role="listbox"></ul>
+			</div>
+			<div id="map-info-bar" class="map-info-bar">
+				<div class="map-info-title">Choose a map to view its metadata.</div>
+				<div class="map-info-description"></div>
+				<div class="map-info-meta"></div>
+			</div>
+			<div class="header-right-side">
+				<div class="btn-group">
 				<div id="map-dropdown" class="btn-group">
 					<button id="maps" class="btn btn-default dropdown-toggle" data-toggle="dropdown" data-target="#map-dropdown" title="Select a map"><img class="icon" src="img/maps.png" /></button>
 					<!-- Note: Keep the following ul tag empty for CSS purposes (this includes whitespace) -->

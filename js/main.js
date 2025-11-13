@@ -65,6 +65,7 @@ define(['jquery', 'UrlMap', 'Firebase', 'FirebaseAuth','FirebaseAuth-modern', 'R
 	var defaultUrlLayers = (urlMap.layers && urlMap.layers.length) ? urlMap.layers.slice() : (urlMap.layer ? [urlMap.layer] : []);
 	var layerManager = new LayerManager(dataService, mapManager, defaultUrlLayers);
 	mapManager.onSwitch(function(mapData, selectedFeatureId){
+	  updateMapInfoBar(mapData);
 	  layerManager.reload(mapData, selectedFeatureId);
 	  if (defaultUrlLayers.length) {
 		  var layersToEnable = defaultUrlLayers.slice();
@@ -109,6 +110,115 @@ define(['jquery', 'UrlMap', 'Firebase', 'FirebaseAuth','FirebaseAuth-modern', 'R
 				layerManager.enableLayer(layerId);
 			});
 		}
+	}
+
+	var MAP_INFO_DESCRIPTION_KEYS = ['description', 'desc', 'summary', 'notes'];
+	var MAP_INFO_PILL_KEYS = ['author', 'creator', 'publisher', 'scale', 'source', 'collection', 'location', 'type', 'attribution'];
+	var MAP_INFO_IGNORED_KEYS = {
+		name: true,
+		year: true,
+		id: true,
+		parent: true,
+		tiles: true,
+		bounds: true,
+		minZoom: true,
+		maxZoom: true,
+		thumbnail: true,
+		thumb: true,
+		createdAt: true,
+		updatedAt: true
+	};
+
+	function formatMetaLabel(key) {
+		return (key || '')
+			.replace(/[_-]/g, ' ')
+			.replace(/\b\w/g, function(char) { return char.toUpperCase(); });
+	}
+
+	function normalizeMetaValue(value) {
+		if (value === undefined || value === null) return '';
+		if (typeof value === 'number') return value.toString();
+		if (typeof value === 'string') return value.trim();
+		return '';
+	}
+
+	function extractDescription(mapData) {
+		for (var i = 0; i < MAP_INFO_DESCRIPTION_KEYS.length; i++) {
+			var key = MAP_INFO_DESCRIPTION_KEYS[i];
+			var val = mapData && mapData[key];
+			if (typeof val === 'string' && val.trim()) {
+				return val.trim();
+			}
+		}
+		return '';
+	}
+
+	function collectMetaPairs(mapData) {
+		var pairs = [];
+		if (!mapData) return pairs;
+
+		MAP_INFO_PILL_KEYS.forEach(function(key) {
+			var val = normalizeMetaValue(mapData[key]);
+			if (val) {
+				pairs.push({ label: formatMetaLabel(key), value: val });
+			}
+		});
+
+		if (pairs.length) {
+			return pairs;
+		}
+
+		Object.keys(mapData).some(function(key) {
+			if (pairs.length >= 3) return true;
+			if (MAP_INFO_IGNORED_KEYS[key]) return false;
+			if (MAP_INFO_DESCRIPTION_KEYS.indexOf(key) !== -1) return false;
+			if (MAP_INFO_PILL_KEYS.indexOf(key) !== -1) return false;
+			var val = normalizeMetaValue(mapData[key]);
+			if (val) {
+				pairs.push({ label: formatMetaLabel(key), value: val });
+			}
+			return false;
+		});
+
+		return pairs;
+	}
+
+	function updateMapInfoBar(mapData) {
+		var $infoBar = $('#map-info-bar');
+		if (!$infoBar.length) return;
+
+		var $title = $infoBar.find('.map-info-title');
+		var $description = $infoBar.find('.map-info-description');
+		var $meta = $infoBar.find('.map-info-meta');
+
+		if (!mapData) {
+			$title.text('Choose a map to view its metadata.');
+			$description.empty();
+			$meta.empty();
+			return;
+		}
+
+		var title = mapData.name || mapData.label || mapData.id || 'Selected Map';
+		if (mapData.year) {
+			title += ' (' + mapData.year + ')';
+		}
+		$title.text(title);
+
+		var description = extractDescription(mapData);
+		if (description) {
+			$description.text(description);
+		} else {
+			$description.empty();
+		}
+
+		var metaPairs = collectMetaPairs(mapData);
+		$meta.empty();
+		metaPairs.forEach(function(pair) {
+			var $pill = $('<span>', { 'class': 'map-info-pill' });
+			$('<span>', { 'class': 'pill-label', text: pair.label }).appendTo($pill);
+			$('<span>', { 'class': 'pill-value', text: pair.value }).appendTo($pill);
+			$meta.append($pill);
+		});
 	}
 
 	/// EXTRA FUNCTIONALITY
