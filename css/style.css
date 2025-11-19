@@ -342,6 +342,7 @@ html, body
 	display: none;
 	background: white;
 	padding: 15px;
+	margin-top: 80%;
 }
 .login-input {
 	border-radius: 5px;
