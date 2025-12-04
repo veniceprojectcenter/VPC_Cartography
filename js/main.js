@@ -575,7 +575,15 @@ define(['jquery', 'UrlMap', 'Firebase', 'FirebaseAuth','FirebaseAuth-modern', 'R
 		$('#signup-link').click(function () {
 			showLoginForm('signup');
 		});
-		$('#logout-link').click(fbAuth.logout);
+		$('#logout-link').click(function () {
+			// Use the modern Firebase client to sign out so UI state resets correctly.
+			if (fbAuth2 && typeof fbAuth2.logout === 'function') {
+				fbAuth2.logout();
+			} else if (fbAuth && typeof fbAuth.logout === 'function') {
+				// Legacy fallback if the modern client is unavailable.
+				fbAuth.logout();
+			}
+		});
 
 		$('#new-layer-button').click(layerManager.addNewLayer);
 		$('#new-map-button').click(mapManager.addNewMap);
