@@ -12,6 +12,94 @@ define(['jquery', 'Leaflet', 'LeafletDraw'], function($, L) {
 				polyLayer,
 				originalLatLngs = null;
 
+		// Improve edit handle visibility and interaction semantics.
+		var existingVertexIcon = new L.DivIcon({
+			iconSize: new L.Point(10, 10),
+			className: 'leaflet-div-icon leaflet-editing-icon leaflet-existing-vertex'
+		});
+		var middleVertexIcon = new L.DivIcon({
+			iconSize: new L.Point(10, 10),
+			className: 'leaflet-div-icon leaflet-editing-icon leaflet-middle-vertex'
+		});
+
+		if (L.Edit && L.Edit.Poly && !L.Edit.Poly.prototype._vpcCartoPatched) {
+			// Use visible icons for existing vertices.
+			L.Edit.Poly.prototype.options.icon = existingVertexIcon;
+
+			// Only delete vertices when shift-clicking to avoid collisions with add handles.
+			var originalOnMarkerClick = L.Edit.Poly.prototype._onMarkerClick;
+			L.Edit.Poly.prototype._onMarkerClick = function (evt) {
+				if (!(evt && evt.originalEvent && evt.originalEvent.shiftKey)) {
+					return;
+				}
+				return originalOnMarkerClick.call(this, evt);
+			};
+
+			// Allow different icons/z-index for middle markers vs. existing vertices.
+			L.Edit.Poly.prototype._createMarker = function (latlng, index, icon, zIndexOffset) {
+				var marker = new L.Marker(latlng, {
+					draggable: true,
+					icon: icon || existingVertexIcon,
+					zIndexOffset: zIndexOffset || 100
+				});
+				marker._origLatLng = latlng;
+				marker._index = index;
+				marker.on("drag", this._onMarkerDrag, this);
+				marker.on("dragend", this._fireEdit, this);
+				this._markerGroup.addLayer(marker);
+				return marker;
+			};
+
+			L.Edit.Poly.prototype._createMiddleMarker = function (left, right) {
+				var middleLatLng = this._getMiddleLatLng(left, right);
+				var middleMarker = this._createMarker(middleLatLng, null, middleVertexIcon, -200);
+				middleMarker.setOpacity(0.9);
+				left._middleRight = right._middleLeft = middleMarker;
+
+				var convertToVertex = function () {
+					var newIndex = right._index;
+					middleMarker._index = newIndex;
+					middleMarker.off("click", addVertex, this).on("click", this._onMarkerClick, this);
+					middleLatLng.lat = middleMarker.getLatLng().lat;
+					middleLatLng.lng = middleMarker.getLatLng().lng;
+					this._poly.spliceLatLngs(newIndex, 0, middleLatLng);
+					this._markers.splice(newIndex, 0, middleMarker);
+					middleMarker.setIcon(existingVertexIcon);
+					middleMarker.setZIndexOffset(100);
+					middleMarker.setOpacity(1);
+					this._updateIndexes(newIndex, 1);
+					right._index++;
+					this._updatePrevNext(left, middleMarker);
+					this._updatePrevNext(middleMarker, right);
+				};
+
+				var splitIntoNewMiddles = function () {
+					middleMarker.off("dragstart", convertToVertex, this);
+					middleMarker.off("dragend", splitIntoNewMiddles, this);
+					this._createMiddleMarker(left, middleMarker);
+					this._createMiddleMarker(middleMarker, right);
+				};
+
+				var addVertex = function (evt) {
+					if (evt && evt.originalEvent && evt.originalEvent.shiftKey) {
+						return;
+					}
+					convertToVertex.call(this);
+					splitIntoNewMiddles.call(this);
+					this._fireEdit();
+				};
+
+				middleMarker
+					.on("click", addVertex, this)
+					.on("dragstart", convertToVertex, this)
+					.on("dragend", splitIntoNewMiddles, this);
+
+				this._markerGroup.addLayer(middleMarker);
+			};
+
+			L.Edit.Poly.prototype._vpcCartoPatched = true;
+		}
+
 		function cloneLatLngs(latlngs) {
 			if (!latlngs || !latlngs.map) return null;
 			return latlngs.map(function(ring) {
