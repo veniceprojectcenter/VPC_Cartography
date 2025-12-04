@@ -397,8 +397,13 @@ define(['lodash'], function(_) {
 						if(loggedIn){
                         Editbutton.addEventListener('click', function (){
                              writeButton.click();
+                             var existingFinish = document.getElementById('finish');
+                             if (existingFinish && existingFinish.parentNode) {
+                                existingFinish.parentNode.removeChild(existingFinish);
+                             }
                              const finishButton = document.createElement('button');
                                 finishButton.id = 'finish';
+                                finishButton.className = 'btn btn-warning btn-lg finish-edit-btn';
                                 finishButton.textContent = 'Finish Editing';
                                 btnGroup.appendChild(finishButton);
                                 finishButton.addEventListener('click', function (){

@@ -9,7 +9,67 @@ define(['jquery', 'Leaflet', 'LeafletDraw'], function($, L) {
 				newPoly = null,
 				state = "start",
 				editor,
-				polyLayer;
+				polyLayer,
+				originalLatLngs = null;
+
+		function cloneLatLngs(latlngs) {
+			if (!latlngs || !latlngs.map) return null;
+			return latlngs.map(function(ring) {
+				if (!Array.isArray(ring)) {
+					return L.latLng(ring.lat, ring.lng);
+				}
+				return ring.map(function(point) {
+					if (point && point.lat !== undefined && point.lng !== undefined) {
+						return L.latLng(point.lat, point.lng);
+					}
+					if (Array.isArray(point) && point.length >= 2) {
+						return L.latLng(point[0], point[1]);
+					}
+					return point;
+				});
+			});
+		}
+
+		function finishEditCleanup() {
+			state = "start";
+			editor = null;
+			originalLatLngs = null;
+			polyLayer = null;
+			$('#drawmode').removeClass('active');
+		}
+
+		function rollbackEditedGeometry() {
+			if (polyLayer && originalLatLngs) {
+				polyLayer.setLatLngs(originalLatLngs);
+				polyLayer.redraw();
+			}
+			mapManager.map.closePopup();
+		}
+
+		function saveEditedGeometry() {
+			var feature = layerManager.selectedData();
+			if (!feature || !polyLayer || !dataService.fbAuth2 || !dataService.fbAuth2.ref) {
+				return;
+			}
+			var geometry = polyLayer.toGeoJSON().geometry;
+			var geometryRef = dataService.fbAuth2.ref('cartography/geometries/' + dataService.currentMap() + '/' + feature.id);
+
+			dataService.fbAuth2.set(geometryRef, geometry)
+				.then(function(){
+					feature.geometry = geometry;
+					var layerId = feature.properties.type;
+					var enabledLayers = layerManager.getEnabledLayers && layerManager.getEnabledLayers();
+					var layerIsEnabled = enabledLayers && enabledLayers.indexOf(layerId) !== -1;
+					if (layerIsEnabled) {
+						layerManager.disableLayer(layerId);
+						layerManager.enableLayer(layerId, undefined, feature.id);
+					}
+					mapManager.map.closePopup();
+				})
+				.catch(function(error){
+					alert("Error: " + error);
+				});
+		}
 	
 		/* Starts the polygon drawing mode
 		 * Initializes the needed components on the map
@@ -20,18 +80,15 @@ define(['jquery', 'Leaflet', 'LeafletDraw'], function($, L) {
 			// End edit mode
 			if (state === "edit") {
 				editor.disable();
-				state = "editend";
-				
-				var selectedData = layerManager.selectedData();
-	
-				$('#new-feature-name').val(selectedData.properties.name);
-				$('#new-feature-type').val(selectedData.properties.type);
-				$('#new-feature-link').val(selectedData.properties.link);
-	
-				$('#new-feature').modal('show');
-				$('.layers-select').val( layerManager.mostRecentlyEnabled() );
-				$('.features-select').trigger('change');
-				$('#drawmode').removeClass('active');
+				var saveChanges = window.confirm("Save changes to this polygon?");
+
+				if (saveChanges) {
+					saveEditedGeometry();
+				} else {
+					rollbackEditedGeometry();
+				}
+
+				finishEditCleanup();
 				return;
 			}
 	
@@ -45,6 +102,8 @@ define(['jquery', 'Leaflet', 'LeafletDraw'], function($, L) {
 			if(objectSelected) { // If an object is selected, edit it
 				// selectedPoly in the poly click handler
 				polyLayer = layerManager.selectedPoly();
+				if (!polyLayer || !polyLayer.getLatLngs) return;
+				originalLatLngs = cloneLatLngs(polyLayer.getLatLngs());
 				editor = new L.Edit.Poly(polyLayer);
 				editor.enable();
 				state = "edit";
