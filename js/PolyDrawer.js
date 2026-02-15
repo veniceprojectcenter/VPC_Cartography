@@ -100,6 +100,52 @@ define(['jquery', 'Leaflet', 'LeafletDraw'], function($, L) {
 			L.Edit.Poly.prototype._vpcCartoPatched = true;
 		}
 
+		if (L.Draw && L.Draw.Polyline && !L.Draw.Polyline.prototype._vpcCartoBackspacePatched) {
+			var originalPolylineCancel = L.Draw.Polyline.prototype._cancelDrawing || L.Draw.Feature.prototype._cancelDrawing;
+			L.Draw.Polyline.prototype._recalculateRunningTotal = function () {
+				var total = 0;
+				for (var i = 1; i < this._markers.length; i++) {
+					total += this._markers[i - 1].getLatLng().distanceTo(this._markers[i].getLatLng());
+				}
+				this._measurementRunningTotal = total;
+			};
+			L.Draw.Polyline.prototype._undoLastVertex = function () {
+				if (!this._markers || this._markers.length === 0) {
+					return;
+				}
+				var marker = this._markers.pop();
+				marker.off("click", this._finishShape, this);
+				marker.off("dblclick", this._finishShape, this);
+				this._markerGroup.removeLayer(marker);
+				var latlngs = this._poly.getLatLngs();
+				if (latlngs.length > 0) {
+					this._poly.spliceLatLngs(latlngs.length - 1, 1);
+				}
+				if (this._poly.getLatLngs().length < 2 && this._map.hasLayer(this._poly)) {
+					this._map.removeLayer(this._poly);
+				}
+				this._recalculateRunningTotal();
+				this._updateFinishHandler();
+				this._clearGuides();
+				this._updateTooltip();
+			};
+			L.Draw.Polyline.prototype._cancelDrawing = function (evt) {
+				var keyCode = evt && (evt.keyCode || evt.which);
+				if (keyCode === 8) {
+					var target = evt.target || evt.srcElement;
+					var tagName = target && target.tagName ? target.tagName.toLowerCase() : "";
+					var isEditable = target && (target.isContentEditable || tagName === "input" || tagName === "textarea" || tagName === "select");
+					if (!isEditable) {
+						L.DomEvent.preventDefault(evt);
+						L.DomEvent.stopPropagation(evt);
+						this._undoLastVertex();
+						return;
+					}
+				}
+				return originalPolylineCancel.call(this, evt);
+			};
+			L.Draw.Polyline.prototype._vpcCartoBackspacePatched = true;
+		}
 		function cloneLatLngs(latlngs) {
 			if (!latlngs || !latlngs.map) return null;
 			return latlngs.map(function(ring) {
