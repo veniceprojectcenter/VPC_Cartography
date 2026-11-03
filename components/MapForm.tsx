@@ -1,14 +1,24 @@
 "use client";
 
 import { useState } from "react";
-import type { MapRow } from "@/lib/rows";
+import { ImageUp } from "lucide-react";
+import type { MapRow, TilesetRow } from "@/lib/rows";
 import type { MapFields } from "@/lib/edits";
 import Sheet from "./Sheet";
 
-type Props = { map?: MapRow; takenIds: Set<string>; saving: boolean; onCancel: () => void; onSubmit: (fields: MapFields) => void };
+type Props = {
+  map?: MapRow;
+  takenIds: Set<string>;
+  saving: boolean;
+  // This map's tile sets, newest first, and why each one could not go live (null if it can).
+  tilesets: { tileset: TilesetRow; blocker: string | null }[];
+  onCancel: () => void;
+  onSubmit: (fields: MapFields) => void;
+  onPublish: (tileset: TilesetRow) => void;
+};
 
-// F17, from tiles that already exist somewhere. Uploading an image to tile it is a later step.
-export default function MapForm({ map, takenIds, saving, onCancel, onSubmit }: Props) {
+// F17 from tiles that already exist somewhere, plus the map's tile history. Uploading an image is /upload.
+export default function MapForm({ map, takenIds, saving, tilesets, onCancel, onSubmit, onPublish }: Props) {
   const [f, setF] = useState<MapFields>({
     map_id: map?.map_id ?? "",
     name: map?.name ?? "",
@@ -75,6 +85,31 @@ export default function MapForm({ map, takenIds, saving, onCancel, onSubmit }: P
           <label className="narrow">Max zoom<input value={f.max_zoom} onChange={set("max_zoom")} inputMode="numeric" />{err("max_zoom")}</label>
         </div>
         <label>Bounds<input value={f.bounds} onChange={set("bounds")} className="mono" />{err("bounds")}</label>
+        <p className="note">Changing the tile fields keeps the old tiles as an earlier set, so you can go back to them below.</p>
+
+        {map && (
+          <section className="form">
+            <h3 className="section-title">Tiles</h3>
+            <ul className="tilesets">
+              {tilesets.map(({ tileset: t, blocker }) => {
+                const live = t.tileset_id === map.tileset_id;
+                const partial = t.upload_state !== "complete";
+                return (
+                  <li key={t.tileset_id} className={live ? "live" : ""}>
+                    <div className="what">
+                      <b>{t.crs === "pixel" ? `Uploaded image, ${t.image_width} × ${t.image_height}` : "Tiles from a link"}</b>
+                      <span>{t.created_at.slice(0, 16).replace("T", " ")} · {t.created_by}{partial ? ` · ${t.uploaded_count || 0} of ${t.tile_count} tiles stored` : t.tile_count ? ` · ${t.tile_count} tiles` : ""}</span>
+                    </div>
+                    {live ? <span className="tag">Showing</span>
+                      : partial ? <a className="tag partial" href={`/upload?map=${map.map_id}`} title="Resume this upload in the uploader">Unfinished</a>
+                      : <button type="button" disabled={saving || !!blocker} title={blocker ?? undefined} onClick={() => onPublish(t)}>Show these</button>}
+                  </li>
+                );
+              })}
+            </ul>
+            <a className="add-row" href={`/upload?map=${map.map_id}`}><ImageUp /> Upload new tiles from an image</a>
+          </section>
+        )}
       </div>
     </Sheet>
   );

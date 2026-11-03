@@ -1,11 +1,11 @@
-// Firebase snapshot -> data/maps.csv, data/items.csv, data/placements.csv.
+// Firebase snapshot -> data/maps.csv, data/items.csv, data/placements.csv, data/tilesets.csv.
 // Pure function of the snapshot and data/tile-extents.json: same input, byte-identical output.
 //
 // Carries over what the old viewer could show, and nothing else (docs/data-model.md, Import).
 
 import { readFileSync, writeFileSync } from "node:fs";
 import Papa from "papaparse";
-import { MAP_COLUMNS, ITEM_COLUMNS, PLACEMENT_COLUMNS, type MapRow, type ItemRow, type PlacementRow } from "../lib/rows";
+import { MAP_COLUMNS, ITEM_COLUMNS, PLACEMENT_COLUMNS, TILESET_COLUMNS, TILE_COLUMNS, type MapRow, type ItemRow, type PlacementRow, type TilesetRow } from "../lib/rows";
 import { polygonCenter, wrapPolygonLongitudes } from "../lib/geometry";
 
 const SNAPSHOT = "data/firebase-snapshot-2026-11-03";
@@ -44,6 +44,25 @@ function tile_dir_for(map: FbMap): string {
   return last;
 }
 
+// The tiles each old map already had, on the old host, as that map's first tile set.
+function legacy_tileset_id(mapId: string): string {
+  return `${mapId}-legacy`;
+}
+
+function build_tilesets(maps: MapRow[]): TilesetRow[] {
+  return maps.map((m) => ({
+    tileset_id: m.tileset_id,
+    map_id: m.map_id,
+    map_name: m.name,
+    upload_state: "complete" as const,
+    // Never uploaded through the app, so never counted.
+    tile_count: "",
+    uploaded_count: "",
+    ...Object.fromEntries(TILE_COLUMNS.map((c) => [c, m[c]])) as Pick<MapRow, (typeof TILE_COLUMNS)[number]>,
+    ...audit(m.created_by),
+  }));
+}
+
 function audit(by: string | undefined) {
   return { status: "active" as const, created_by: by ?? IMPORTED_BY, created_at: IMPORTED_AT, updated_by: IMPORTED_BY, updated_at: IMPORTED_AT };
 }
@@ -63,6 +82,7 @@ function build_maps(fbMaps: Record<string, FbMap>, extents: Record<string, Exten
       source: "",
       collection: "",
       scale: "",
+      tileset_id: legacy_tileset_id(mapId),
       tiles_url: `${TILE_HOST}/${dir}/{z}/{x}/{-y}.png`,
       tile_scheme: "tms",
       crs: "legacy-mercator",
@@ -176,6 +196,7 @@ function main() {
   writeCsv("data/maps.csv", MAP_COLUMNS, maps);
   writeCsv("data/items.csv", ITEM_COLUMNS, items);
   writeCsv("data/placements.csv", PLACEMENT_COLUMNS, placements);
+  writeCsv("data/tilesets.csv", TILESET_COLUMNS, build_tilesets(maps));
 
   console.log(counts);
   // The totals docs/data-model.md promises; anything else means the snapshot or the rules changed.

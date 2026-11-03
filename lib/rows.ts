@@ -5,7 +5,7 @@ export const AUDIT_COLUMNS = ["status", "created_by", "created_at", "updated_by"
 
 export const MAP_COLUMNS = [
   "map_id", "name", "year", "parent", "description", "author", "source", "collection", "scale",
-  "tiles_url", "tile_scheme", "crs", "min_zoom", "max_zoom", "bounds",
+  "tileset_id", "tiles_url", "tile_scheme", "crs", "min_zoom", "max_zoom", "bounds",
   "image_width", "image_height", "source_image_url", "metadata_json",
   ...AUDIT_COLUMNS,
 ] as const;
@@ -26,24 +26,44 @@ export const PLACEMENT_COLUMNS = [
   ...AUDIT_COLUMNS,
 ] as const;
 
+// One row per set of tiles ever made for a map. A map shows exactly one (maps.tileset_id); the
+// others stay, so a map can be pointed back at an earlier set. A set is only ever published
+// when upload_state is "complete": every tile it lists is in storage.
+export const TILESET_COLUMNS = [
+  "tileset_id", "map_id", "map_name",
+  "upload_state", "tile_count", "uploaded_count",
+  "tiles_url", "tile_scheme", "crs", "min_zoom", "max_zoom", "bounds",
+  "image_width", "image_height", "source_image_url",
+  ...AUDIT_COLUMNS,
+] as const;
+
+export type UploadState = "uploading" | "complete";
+
 export type Status = "active" | "deleted";
 type Row<C extends readonly string[]> = { [K in C[number]]: K extends "status" ? Status : string };
 
 export type MapRow = Row<typeof MAP_COLUMNS>;
 export type ItemRow = Row<typeof ITEM_COLUMNS>;
 export type PlacementRow = Row<typeof PLACEMENT_COLUMNS>;
+export type TilesetRow = Omit<Row<typeof TILESET_COLUMNS>, "upload_state"> & { upload_state: UploadState };
 
-export type Table = "maps" | "items" | "placements";
+export type Table = "maps" | "items" | "placements" | "tilesets";
+export const TABLES: Table[] = ["maps", "items", "placements", "tilesets"];
 export const TABLE_COLUMNS: Record<Table, readonly string[]> = {
   maps: MAP_COLUMNS,
   items: ITEM_COLUMNS,
   placements: PLACEMENT_COLUMNS,
+  tilesets: TILESET_COLUMNS,
 };
 export const TABLE_KEY: Record<Table, string> = {
   maps: "map_id",
   items: "item_id",
   placements: "placement_id",
+  tilesets: "tileset_id",
 };
+
+// The columns a map copies from the tile set it shows, so a map row still reads on its own.
+export const TILE_COLUMNS = ["tiles_url", "tile_scheme", "crs", "min_zoom", "max_zoom", "bounds", "image_width", "image_height", "source_image_url"] as const;
 
 export type Layer = { layer_id: string; layer_name: string; layer_color: string; layer_parent: string };
 

@@ -1,0 +1,30 @@
+rules_version = '2';
+
+// Anyone reads active rows of the three public tables. Admins (custom claim `admin`, set by
+// scripts/grant-admin.ts) read everything and write rows. Nobody removes a row: deleting is
+// status = "deleted" (docs/data-model.md).
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAdmin() {
+      return request.auth != null && request.auth.token.admin == true;
+    }
+    function keyOf(table) {
+      return table == 'maps' ? 'map_id'
+        : table == 'items' ? 'item_id'
+        : table == 'placements' ? 'placement_id'
+        : 'tileset_id';
+    }
+    // A row is keyed by its own id and has a known status.
+    function isRow(table, id) {
+      let row = request.resource.data;
+      return row[keyOf(table)] == id && row.status in ['active', 'deleted'];
+    }
+
+    match /{table}/{id} {
+      allow read: if table in ['maps', 'items', 'placements'] && (resource.data.status == 'active' || isAdmin());
+      allow read: if table == 'tilesets' && isAdmin();
+      allow create, update: if table in ['maps', 'items', 'placements', 'tilesets'] && isAdmin() && isRow(table, id);
+      allow delete: if false;
+    }
+  }
+}

@@ -13,9 +13,9 @@ Next.js (App Router)
 ├── uploader      image → tile pyramid, in a Web Worker       (admin)
 ├── rows          Firestore: maps, items, placements          (public read, admin write)
 ├── auth          Firebase Auth, email + password             (admins only, no sign-up)
-└── images        tiles and source images
-                  ├── local: dev-only route handler writes into maps/ on disk
-                  └── s3:    route handler checks the Firebase ID token, returns presigned PUT URLs
+└── images        tile sets and their source images
+                  ├── local: dev-only route handlers sign PUT URLs and serve uploads/ on disk
+                  └── s3:    route handler checks the admin, returns presigned PUT URLs
 ```
 
 A new Firebase project, not either of the two the old app used. Locally everything runs on the Firebase Emulator Suite (Auth + Firestore), seeded from `data/*.csv`; nothing touches a real project until it is pointed at one. Security rules: anyone reads rows with `status=active`; writes need a signed-in user with an `admin` custom claim. S3 holds images only.
@@ -36,21 +36,37 @@ Added admin control: snap to neighbouring polygons, undo/redo stack per edit ses
 
 ## Uploader: client-side tiling
 
-Image in, XYZ pyramid out, in a Web Worker so the page stays live. Library first: wasm-vips (`dzsave`, Google layout), which streams instead of decoding the whole image — the de'Barbari source is far past the browser's canvas size limit. Needs `SharedArrayBuffer`, so the uploader route sets COOP/COEP headers.
+`/upload`. Image in, tile pyramid out, in a Web Worker so the page stays live, then straight to storage.
 
-**To verify first:** that the wasm-vips build exposes `dzsave` to an in-memory target. If it does not, the fallback is region decoding with `createImageBitmap` + `OffscreenCanvas` across workers, and the gate for hand-rolling is named in the PR (ali-skills 03 §4).
+**Library.** wasm-vips 0.0.19 does the decoding and resizing. Its build has no `dzsave` (checked: `Image.prototype.dzsave` is undefined), the case the spec named as its fallback. So the pyramid is cut by `public/tiler/pyramid.js`, about a hundred lines, with vips still doing the pixel work. Canvas would not do: de'Barbari at full zoom is about 46,000 × 20,000 px, past every browser's canvas limit.
 
-Uploaded maps get `crs=pixel`: coordinates are image pixels, no fake geography.
+**Memory.** wasm-vips can use at most 2 GB, and that image decoded whole is about 2.8 GB. So nothing is held whole:
 
-Two admin paths, as today: upload an image and let it tile, or paste a URL to existing tiles.
+- The file sits in the emscripten file system (JS memory, outside the wasm heap).
+- It is read once, top to bottom, in 256-row strips; vips decodes only those rows.
+- Each strip is cut into tiles, halved, and handed to the next level down. That level cuts its own tiles once it has 256 rows, and so on.
+
+One pass makes every level. Measured in Node on a 46,080 × 20,000 test JPEG of 479 MB: 19,037 tiles, exactly the planned count, in 106 s, with memory flat at about 1.7 GB. Tiles are 256 px WebP. Edge tiles are padded with transparency, never stretched.
+
+**Isolation.** Threads need `SharedArrayBuffer`, which needs a cross-origin-isolated page. `next.config.ts` sends COOP/COEP on `/upload` and on the worker's files only; the viewer is untouched.
+
+**No half-uploaded tiles.** Each upload is its own tile set in its own folder; a map only ever points at a complete one; a stopped upload resumes with the same file. The rules are in `docs/data-model.md` (`tilesets`). Checked in the browser: stopped at 246 of 2,017 tiles, the map kept its old tiles, the resume sent only the rest, and an earlier set was shown again from the map's sheet.
+
+Uploaded maps get `crs=pixel`: coordinates are image pixels, no fake geography. The viewer gives each such map its own OpenLayers projection and tile grid (`components/MapView.tsx`, `map_frame`).
+
+Two admin paths, as today: upload an image, or give links to existing tiles. Either way the map's history of tile sets is in its sheet.
 
 ## Tiles
 
-Never in git. The 2.5 GB tree from `main` stays on disk in `maps/` (git-ignored on this branch) and is served locally under `/tiles/`. Moving to S3 is a copy of that folder plus a `tiles_url` change per map row.
+Never in git. The 2.5 GB tree from `main` stays on disk in `maps/` (git-ignored on this branch). Until release the maps read their tiles from cartography.veniceprojectcenter.org. Moving them to S3 is a copy of that folder plus a tile URL change per map in its sheet. Because the frame is the same, the guard allows it, and the old URL stays as an earlier tile set (`docs/release.md`).
 
 ## Auth
 
-Firebase Auth, email and password, admins only. Accounts are created in the Firebase console and given the `admin` claim by `scripts/grant-admin.ts`; the app offers no sign-up. Locally, the Auth emulator holds a test admin seeded by the same script.
+Firebase Auth, email and password, admins only. Accounts are created in the Firebase console and given the `admin` claim by `scripts/grant-admin.ts`; the app offers no sign-up. A signed-in account without the claim is treated as signed out. Locally, the Auth emulator holds a test admin made by the same script.
+
+The image route checks the caller itself: a Firebase ID token verified with the Admin SDK, or, on the CSV trial, the local admin's signed cookie (`lib/server-auth.ts`).
+
+Checked on the emulator. Visitors read active rows but not tile sets, deleted rows or an unfiltered list, and cannot write. Admins write rows only with their own id as key and a known status. Nobody can delete a row, admins included.
 
 ## UI
 
@@ -58,9 +74,10 @@ Ported function, new finish, per ali-skills 11: Apple system colours (blue, whit
 
 ## Build order
 
-1. Import Firebase snapshot → CSV, with reconciled counts; seed the Firestore emulator.
-2. Viewer baseline on OpenLayers; overlay check against `main`.
-3. Remaining viewer features F2–F11.
-4. Auth and security rules; editor F13–F18 plus the added controls.
-5. Uploader.
-6. S3 for images.
+1. Import Firebase snapshot → CSV, with reconciled counts; seed the Firestore emulator. **Done.**
+2. Viewer baseline on OpenLayers; overlay check against `main`. **Done.**
+3. Remaining viewer features F2–F11. **Done.**
+4. Auth and security rules; editor F13–F18 plus the added controls. **Done**, except these added controls, still to build: copy a polygon from another map, reassign a polygon to another item, item table, restore from the UI.
+5. Uploader. **Done.**
+6. S3 for images. **Done in code**, checked through the local store that speaks the same signed-URL contract; not yet run against a real bucket.
+7. Release: `docs/release.md`.

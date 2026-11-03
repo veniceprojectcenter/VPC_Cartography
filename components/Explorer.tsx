@@ -14,7 +14,7 @@ import AboutSheet from "./AboutSheet";
 import { Toasts, useToasts } from "./Toasts";
 import { layers_from_items, type ItemRow, type MapRow } from "@/lib/rows";
 import { load_dataset, save_rows, type Dataset, type Write } from "@/lib/store-client";
-import { apply_writes, create_item, delete_item, delete_placement, place_existing_item, update_item, update_layer, update_shape, save_map, type MapFields } from "@/lib/edits";
+import { apply_writes, publish_blocker, publish_tileset, create_item, delete_item, delete_placement, place_existing_item, update_item, update_layer, update_shape, save_map, type MapFields } from "@/lib/edits";
 import { signed_in_email, sign_out } from "@/lib/auth-client";
 import { build_share_url, read_view_from_url } from "@/lib/share";
 import type { Polygon } from "@/lib/geometry";
@@ -49,7 +49,13 @@ export default function Explorer() {
 
   // Load order is explicit (D8): rows, then the URL's view, then the map draws it.
   useEffect(() => {
-    load_dataset()
+    // Who is signed in decides what is read: admins also get deleted rows and tile sets.
+    signed_in_email()
+      .catch(() => null)
+      .then((email) => {
+        setUser(email);
+        return load_dataset(!!email);
+      })
       .then((d) => {
         const view = read_view_from_url(window.location.search, d.items);
         const map = d.maps.find((m) => m.map_id === view.mapId && m.status === "active") ?? d.maps.find((m) => m.map_id === DEFAULT_MAP) ?? d.maps[0];
@@ -66,7 +72,6 @@ export default function Explorer() {
         }
       })
       .catch((e: Error) => setLoadError(e.message));
-    signed_in_email().then(setUser).catch(() => setUser(null));
   }, []);
 
   const mapsById = useMemo(() => new Map((data?.maps ?? []).map((m) => [m.map_id, m])), [data]);
@@ -369,6 +374,13 @@ export default function Explorer() {
           map={sheet.map}
           takenIds={new Set(data.maps.map((m) => m.map_id))}
           saving={saving}
+          tilesets={data.tilesets
+            .filter((t) => t.map_id === sheet.map?.map_id && t.status === "active")
+            .sort((a, b) => b.created_at.localeCompare(a.created_at))
+            .map((t) => ({ tileset: t, blocker: publish_blocker(data, sheet.map, t) }))}
+          onPublish={async (t) => {
+            if (await commit(publish_tileset(data, t, user!), `${sheet.map?.name} now shows the tiles from ${t.created_at.slice(0, 16).replace("T", " ")}.`)) setSheet(null);
+          }}
           onCancel={() => setSheet(null)}
           onSubmit={async (fields: MapFields) => {
             if (await commit(save_map(data, fields, user!), `${fields.name} saved.`)) {
@@ -381,7 +393,13 @@ export default function Explorer() {
       {sheet?.kind === "about" && <AboutSheet onClose={() => setSheet(null)} />}
 
       {sheet?.kind === "sign-in" && (
-        <SignInSheet onClose={() => setSheet(null)} onSignedIn={(email) => { setUser(email); setSheet(null); toasts.push({ tone: "success", text: `Signed in as ${email}.` }); }} />
+        <SignInSheet onClose={() => setSheet(null)} onSignedIn={(email) => {
+          setUser(email);
+          setSheet(null);
+          toasts.push({ tone: "success", text: `Signed in as ${email}.` });
+          // Admins see deleted rows (to restore) and tile sets; reload with those.
+          load_dataset(true).then(setData).catch((e: Error) => toasts.push({ tone: "error", text: `Could not load admin data: ${e.message}` }));
+        }} />
       )}
       <Toasts toasts={toasts.list} onDismiss={toasts.dismiss} />
     </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, ChevronRight, Pencil, Plus, Search, X } from "lucide-react";
+import { Check, ChevronRight, ImageUp, Pencil, Plus, Search, X } from "lucide-react";
 import type { Layer, MapRow } from "@/lib/rows";
 
 // F2 and F4: the map picker and the layer picker, each its own side panel opened from the top bar.
@@ -78,7 +78,12 @@ export function MapsPanel(p: MapsProps) {
           </Group>
         ))}
         {!shown.length && <p className="empty">No map matches “{query}”.</p>}
-        {p.editMode && <button type="button" className="add-row" onClick={p.onNewMap}><Plus /> New map</button>}
+        {p.editMode && (
+          <>
+            <a className="add-row" href="/upload"><ImageUp /> New map from an image</a>
+            <button type="button" className="add-row" onClick={p.onNewMap}><Plus /> New map from tile links</button>
+          </>
+        )}
       </div>
     </PanelShell>
   );

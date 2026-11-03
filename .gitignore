@@ -13,3 +13,7 @@ next-env.d.ts
 *.pem
 npm-debug.log*
 !.env.example
+/public/vendor/
+/uploads/
+/.emulator-data/
+*.log

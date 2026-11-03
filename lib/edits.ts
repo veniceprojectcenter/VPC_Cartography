@@ -1,7 +1,7 @@
 // Every admin change as a pure function: dataset in, rows to write out.
 // Redundant columns are rewritten here and only here, so a copy never drifts from its source.
 
-import type { ItemRow, Layer, MapRow, PlacementRow } from "./rows";
+import { TILE_COLUMNS, type ItemRow, type Layer, type MapRow, type PlacementRow, type TilesetRow } from "./rows";
 import type { Dataset, Write } from "./store-client";
 import { polygonCenter, type Polygon } from "./geometry";
 
@@ -41,13 +41,14 @@ function upsert<T>(rows: T[], next: T[], key: keyof T): T[] {
 
 // Applies writes to the in-memory dataset; used for the optimistic update.
 export function apply_writes(data: Dataset, writes: Write[]): Dataset {
-  let { maps, items, placements } = data;
+  let { maps, items, placements, tilesets } = data;
   for (const w of writes) {
     if (w.table === "maps") maps = upsert(maps, w.rows as MapRow[], "map_id");
     if (w.table === "items") items = upsert(items, w.rows as ItemRow[], "item_id");
     if (w.table === "placements") placements = upsert(placements, w.rows as PlacementRow[], "placement_id");
+    if (w.table === "tilesets") tilesets = upsert(tilesets, w.rows as TilesetRow[], "tileset_id");
   }
-  return { maps, items, placements };
+  return { maps, items, placements, tilesets };
 }
 
 function placement_row(item: ItemRow, map: MapRow, geometry: Polygon, base: Partial<PlacementRow>, by: string): PlacementRow {
@@ -169,18 +170,102 @@ export function update_layer(data: Dataset, layerId: string, next: Omit<Layer, "
   ];
 }
 
-export type MapFields = Pick<MapRow, "map_id" | "name" | "year" | "parent" | "description" | "author" | "source" | "collection" | "scale" | "tiles_url" | "tile_scheme" | "min_zoom" | "max_zoom" | "bounds">;
+// ---------- maps and tile sets ----------
+// A map shows one tile set (maps.tileset_id) and carries a copy of its tile columns. Changing the
+// tiles never edits a set: it makes a new one and points the map at it, so the old one is still
+// there to go back to. Only a complete set is ever pointed at.
 
-// F17: a map from existing tiles. (Uploading an image to tile it comes later.)
+export type MapInfo = Pick<MapRow, "map_id" | "name" | "year" | "parent" | "description" | "author" | "source" | "collection" | "scale">;
+export type TileFields = Pick<TilesetRow, (typeof TILE_COLUMNS)[number]>;
+export type MapFields = MapInfo & Pick<MapRow, "tiles_url" | "tile_scheme" | "min_zoom" | "max_zoom" | "bounds">;
+
+// Sortable and unique enough per map: the moment it was made.
+export function new_tileset_id(mapId: string): string {
+  return `${mapId}-${new Date().toISOString().replace(/[-:]/g, "").replace(/\..*$/, "").toLowerCase()}`;
+}
+
+function tile_fields_of(row: TileFields): TileFields {
+  return Object.fromEntries(TILE_COLUMNS.map((c) => [c, row[c]])) as TileFields;
+}
+
+// Where polygons sit relative to the tiles. Two sets with the same frame show the same shapes in
+// the same places; with a different one, every polygon drawn on this map would land elsewhere.
+function frame(t: TileFields): string {
+  return t.crs === "pixel" ? `pixel ${t.image_width}x${t.image_height}` : `${t.crs} ${t.bounds}`;
+}
+
+// Why this set cannot go live on this map, or null if it can.
+export function publish_blocker(data: Dataset, map: MapRow | undefined, tileset: TilesetRow): string | null {
+  if (tileset.upload_state !== "complete") {
+    return `Only ${tileset.uploaded_count || 0} of ${tileset.tile_count} tiles are stored. Finish the upload first.`;
+  }
+  if (!map) return null;
+  const shapes = data.placements.filter((p) => p.map_id === map.map_id && p.status === "active").length;
+  if (shapes && frame(tileset) !== frame(map)) {
+    return `${shapes} shapes are drawn on this map's current tiles. These tiles have a different size or frame, so every shape would land in the wrong place.`;
+  }
+  return null;
+}
+
+function map_with_tiles(map: MapRow, tileset: TilesetRow, by: string): MapRow {
+  return touched({ ...map, tileset_id: tileset.tileset_id, ...tile_fields_of(tileset) }, by);
+}
+
+function renamed_placements(data: Dataset, row: MapRow, by: string): PlacementRow[] {
+  return data.placements
+    .filter((p) => p.map_id === row.map_id && (p.map_name !== row.name || p.map_year !== row.year))
+    .map((p) => touched({ ...p, map_name: row.name, map_year: row.year }, by));
+}
+
+function tileset_row(mapId: string, mapName: string, tiles: TileFields, state: Pick<TilesetRow, "upload_state" | "tile_count" | "uploaded_count">, by: string): TilesetRow {
+  return { tileset_id: new_tileset_id(mapId), map_id: mapId, map_name: mapName, ...state, ...tile_fields_of(tiles), ...created(by) };
+}
+
+// F17 from tiles that already exist somewhere: a new map, or an edit. If the tile fields changed,
+// that is a new tile set (complete: the tiles are already there) and the map moves to it.
 export function save_map(data: Dataset, fields: MapFields, by: string): Write[] {
   const prior = data.maps.find((m) => m.map_id === fields.map_id);
-  const row: MapRow = prior
-    ? touched({ ...prior, ...fields }, by)
-    : { ...created(by), ...fields, crs: "legacy-mercator", image_width: "", image_height: "", source_image_url: "", metadata_json: "" };
-  if (!prior) return [{ table: "maps", rows: [row] }];
-  const placements = data.placements.filter((p) => p.map_id === row.map_id && (p.map_name !== row.name || p.map_year !== row.year)).map((p) => touched({ ...p, map_name: row.name, map_year: row.year }, by));
+  const tiles: TileFields = {
+    ...(prior ? tile_fields_of(prior) : { crs: "legacy-mercator", image_width: "", image_height: "", source_image_url: "" }),
+    tiles_url: fields.tiles_url, tile_scheme: fields.tile_scheme, min_zoom: fields.min_zoom, max_zoom: fields.max_zoom, bounds: fields.bounds,
+  } as TileFields;
+  const changedTiles = !prior || TILE_COLUMNS.some((c) => tiles[c] !== prior[c]);
+  const tileset = changedTiles ? tileset_row(fields.map_id, fields.name, tiles, { upload_state: "complete", tile_count: "", uploaded_count: "" }, by) : null;
+  const info = { ...(prior ?? { ...created(by), metadata_json: "", tileset_id: "" }), ...fields } as MapRow;
+  const row = tileset ? map_with_tiles(info, tileset, by) : touched(info, by);
   return [
     { table: "maps", rows: [row] },
-    { table: "placements", rows: placements },
+    { table: "tilesets", rows: tileset ? [tileset] : [] },
+    { table: "placements", rows: prior ? renamed_placements(data, row, by) : [] },
+  ];
+}
+
+// An upload begins: the set exists, marked uploading, before its first tile is sent. If the
+// upload stops, this row is what says so.
+export function start_tileset(mapId: string, mapName: string, tiles: TileFields, tileCount: number, by: string): TilesetRow {
+  return tileset_row(mapId, mapName, tiles, { upload_state: "uploading", tile_count: String(tileCount), uploaded_count: "0" }, by);
+}
+
+export function tileset_progress(tileset: TilesetRow, uploaded: number, by: string): Write[] {
+  return [{ table: "tilesets", rows: [touched({ ...tileset, uploaded_count: String(uploaded) }, by)] }];
+}
+
+// After storage listed every tile (lib/tile-upload.ts). Then, and only then, can it be published.
+export function complete_tileset(tileset: TilesetRow, by: string): TilesetRow {
+  return touched({ ...tileset, upload_state: "complete", uploaded_count: tileset.tile_count }, by);
+}
+
+// Point a map at a set: publishing a new upload, or rolling back to an earlier one.
+// A new map (info given, no row yet) is created on its first set.
+export function publish_tileset(data: Dataset, tileset: TilesetRow, by: string, info?: MapInfo): Write[] {
+  const map = data.maps.find((m) => m.map_id === tileset.map_id);
+  const blocker = publish_blocker(data, map, tileset);
+  if (blocker) throw new Error(blocker);
+  const base = map ?? ({ ...created(by), metadata_json: "", ...info } as MapRow);
+  const row = map_with_tiles(info ? { ...base, ...info } : base, tileset, by);
+  return [
+    { table: "maps", rows: [row] },
+    { table: "tilesets", rows: [tileset] },
+    { table: "placements", rows: map ? renamed_placements(data, row, by) : [] },
   ];
 }

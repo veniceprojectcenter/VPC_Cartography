@@ -20,6 +20,22 @@ The top bar holds the two pickers: the map (its name, opens the list of maps) an
 
 **Sign in** (top right) to edit. Locally there is one admin, set in `.env.local` — copy `.env.example`, fill in an email and password, restart. Signed in, **Edit** lets you draw, reshape and delete shapes, and edit items, layers and maps; the door icon signs out. Saves go straight into the CSVs — `git diff data/` shows what you changed, `git checkout data/` takes it back. Deleting never removes a row; it sets `status=deleted`.
 
+**New map from an image** (Maps panel, signed in) opens `/upload`. The image is cut into tiles in the browser and uploaded, locally into `uploads/`. A map only switches to new tiles once every tile is stored. A stopped upload can be resumed with the same file, and the map's sheet lists every tile set it has had, so you can go back to an earlier one.
+
+## Run it on Firebase, locally
+
+The same app on Firestore and Firebase Auth, using the emulator (Java 11+ and `firebase-tools`). Nothing reaches a real project: the project id is `demo-cartography`.
+
+```
+npm run emulators
+npm run seed
+npm run grant-admin -- you@example.org --password <password>
+```
+
+Then add the Firebase lines from `.env.example` to `.env.local` (`NEXT_PUBLIC_BACKEND=firebase`, project `demo-cartography`, emulators on) and restart `npm run dev`. The emulator keeps its data in `.emulator-data/` between runs.
+
+Going live: `docs/release.md`.
+
 ## Rebuilding the data
 
 The CSVs are made from the Firebase snapshot in `data/firebase-snapshot-2026-11-03/`:
@@ -28,6 +44,6 @@ The CSVs are made from the Firebase snapshot in `data/firebase-snapshot-2026-11-
 npx tsx scripts/import-firebase.ts
 ```
 
-Same snapshot in, same bytes out. `scripts/measure-tiles.ts` re-measures zoom levels and image bounds, and needs the tile tree from `main` in `maps/`.
+Same snapshot in, same bytes out. `scripts/measure-tiles.ts` re-measures zoom levels and image bounds, and needs the tile tree from `main` in `maps/`. `npm run check` tests the rules that keep a half-uploaded or mismatched tile set from going live.
 
-How the rows are laid out: `docs/data-model.md`. Where this is going (Firestore, Firebase Auth, S3, in-browser tiling): `docs/architecture.md`.
+How the rows are laid out: `docs/data-model.md`. How it fits together: `docs/architecture.md`.

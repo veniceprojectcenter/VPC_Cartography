@@ -14,7 +14,8 @@ import type Feature from "ol/Feature";
 import type { Geometry } from "ol/geom";
 import { Fill, Stroke, Style } from "ol/style";
 import { asArray } from "ol/color";
-import { transformExtent } from "ol/proj";
+import { Projection, transformExtent, type ProjectionLike } from "ol/proj";
+import TileGrid from "ol/tilegrid/TileGrid";
 import { OverviewMap, ZoomToExtent, defaults as defaultControls } from "ol/control";
 import { DragBox, Draw, Modify, Snap, Translate } from "ol/interaction";
 import { altKeyOnly, always, shiftKeyOnly, singleClick } from "ol/events/condition";
@@ -44,7 +45,38 @@ type Props = {
   onCancelMode: () => void;
 };
 
-const geojson = new GeoJSON({ dataProjection: "EPSG:4326", featureProjection: "EPSG:3857" });
+// Two frames a map can be in (maps.crs):
+//   legacy-mercator  the gdal2tiles maps: tiles on spherical mercator, polygons in lon/lat
+//   pixel            uploaded maps: tiles in the google layout from lib/../public/tiler, polygons in
+//                    image pixels, x right from the left edge, y up from the bottom edge
+type Frame = { projection: ProjectionLike; extent: number[]; geojson: GeoJSON; tileGrid?: TileGrid; maxResolution?: number };
+
+const TILE_SIZE = 256;
+
+function map_frame(map: MapRow): Frame {
+  if (map.crs !== "pixel") {
+    const [[south, west], [north, east]] = JSON.parse(map.bounds) as [[number, number], [number, number]];
+    return {
+      projection: "EPSG:3857",
+      extent: transformExtent([west, south, east, north], "EPSG:4326", "EPSG:3857"),
+      geojson: new GeoJSON({ dataProjection: "EPSG:4326", featureProjection: "EPSG:3857" }),
+    };
+  }
+  const width = Number(map.image_width);
+  const height = Number(map.image_height);
+  const maxZoom = Number(map.max_zoom);
+  const extent = [0, 0, width, height];
+  const projection = new Projection({ code: `pixel:${map.map_id}:${width}x${height}`, units: "pixels", extent });
+  // Zoom z shows the image at 1 / 2^(maxZoom - z); tiles are counted from the top-left corner.
+  const resolutions = Array.from({ length: maxZoom + 1 }, (_, z) => 2 ** (maxZoom - z));
+  return {
+    projection,
+    extent,
+    geojson: new GeoJSON({ dataProjection: projection, featureProjection: projection }),
+    tileGrid: new TileGrid({ extent, origin: [0, height], resolutions, tileSize: TILE_SIZE }),
+    maxResolution: resolutions[0],
+  };
+}
 
 // Leaflet 0.7 path defaults the old viewer drew with: stroke opacity 0.5, fill opacity 0.2, weight 2.
 const STROKE_ALPHA = 0.5;
@@ -69,13 +101,22 @@ function polygon_style(color: string, state: "normal" | "selected" | "editing"):
   return styles;
 }
 
-function map_extent(map: MapRow) {
-  const [[south, west], [north, east]] = JSON.parse(map.bounds) as [[number, number], [number, number]];
-  return transformExtent([west, south, east, north], "EPSG:4326", "EPSG:3857");
+function tile_source(map: MapRow, frame: Frame) {
+  if (frame.tileGrid) return new XYZ({ url: map.tiles_url, projection: frame.projection, tileGrid: frame.tileGrid, crossOrigin: "anonymous", wrapX: false });
+  return new XYZ({ url: map.tiles_url, maxZoom: Number(map.max_zoom), crossOrigin: "anonymous", wrapX: false });
 }
 
-function tile_source(map: MapRow) {
-  return new XYZ({ url: map.tiles_url, maxZoom: Number(map.max_zoom), crossOrigin: "anonymous", wrapX: false });
+function frame_view(map: MapRow, frame: Frame, options: { showFullExtent?: boolean } = {}) {
+  // One zoom level past the deepest tiles, as the old viewer allowed.
+  return new View({
+    projection: frame.projection,
+    extent: frame.extent,
+    minZoom: frame.tileGrid ? 0 : Number(map.min_zoom),
+    maxZoom: Number(map.max_zoom) + 1,
+    maxResolution: frame.maxResolution,
+    constrainOnlyCenter: true,
+    ...options,
+  });
 }
 
 // The canonical OpenLayers export: paint every layer canvas, with its own transform and opacity, onto one.
@@ -133,6 +174,8 @@ export default function MapView({ ref, map, placements, selectedId, mode, editin
   callbacks.current = { onSelect, onDrawn, onBox, onCancelMode };
   const insetRef = useRef(insetLeft);
   insetRef.current = insetLeft;
+  // The current map's frame; features are read and written through its GeoJSON format.
+  const frameRef = useRef<Frame | null>(null);
 
   // One OpenLayers map for the component's life.
   useEffect(() => {
@@ -182,18 +225,20 @@ export default function MapView({ ref, map, placements, selectedId, mode, editin
   // Switching maps: new tiles, new minimap, new "view all", fit to the image.
   useEffect(() => {
     const olMap = olRef.current!;
-    const extent = map_extent(map);
-    tileLayer.current!.setSource(tile_source(map));
+    const frame = map_frame(map);
+    frameRef.current = frame;
+    const { extent } = frame;
+    tileLayer.current!.setSource(tile_source(map, frame));
     tileLayer.current!.setExtent(extent);
-    olMap.setView(new View({ minZoom: Number(map.min_zoom), maxZoom: Number(map.max_zoom) + 1, extent, constrainOnlyCenter: true }));
+    olMap.setView(frame_view(map, frame));
     olMap.getView().fit(extent, { padding: padding(insetRef.current, 96) });
 
     if (overview.current) olMap.removeControl(overview.current);
     if (viewAll.current) olMap.removeControl(viewAll.current);
     // Without its own extent the minimap zooms out to the whole globe, where these images are a sliver at the pole.
     overview.current = new OverviewMap({
-      layers: [new TileLayer({ source: tile_source(map), extent })],
-      view: new View({ extent, showFullExtent: true }),
+      layers: [new TileLayer({ source: tile_source(map, frame), extent })],
+      view: frame_view(map, frame, { showFullExtent: true }),
       collapsed: false,
       className: "ol-overviewmap minimap",
     });
@@ -207,7 +252,7 @@ export default function MapView({ ref, map, placements, selectedId, mode, editin
     const source = vectorSource.current;
     source.clear();
     const features = placements.map((p) => {
-      const f = geojson.readFeature({ type: "Feature", geometry: JSON.parse(p.geometry), properties: { layer_color: p.layer_color } }) as Feature<Geometry>;
+      const f = frameRef.current!.geojson.readFeature({ type: "Feature", geometry: JSON.parse(p.geometry), properties: { layer_color: p.layer_color } }) as Feature<Geometry>;
       f.setId(p.placement_id);
       return f;
     });
@@ -236,7 +281,7 @@ export default function MapView({ ref, map, placements, selectedId, mode, editin
       activeDraw.current = draw;
       add(new Snap({ source: vectorSource.current }));
       draw.on("drawend", (e) => {
-        const geometry = geojson.writeGeometryObject(e.feature.getGeometry()!) as Polygon;
+        const geometry = frameRef.current!.geojson.writeGeometryObject(e.feature.getGeometry()!) as Polygon;
         callbacks.current.onDrawn(geometry);
       });
       onKey = (e) => {
@@ -320,7 +365,7 @@ export default function MapView({ ref, map, placements, selectedId, mode, editin
     edited_geometry() {
       const id = state.current.editingId;
       const geom = id ? vectorSource.current.getFeatureById(id)?.getGeometry() : null;
-      return geom ? (geojson.writeGeometryObject(geom) as Polygon) : null;
+      return geom ? (frameRef.current!.geojson.writeGeometryObject(geom) as Polygon) : null;
     },
     async export_view() {
       const olMap = olRef.current!;
