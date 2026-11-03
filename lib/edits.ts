@@ -14,8 +14,8 @@ function created(by: string) {
   return { status: "active" as const, created_by: by, created_at: at, updated_by: by, updated_at: at };
 }
 
-function touched<T extends object>(row: T, by: string): T {
-  return { ...row, updated_by: by, updated_at: now() };
+function touched<T extends object>(row: T, by: string, at = now()): T {
+  return { ...row, updated_by: by, updated_at: at };
 }
 
 function map_ids_for(itemId: string, placements: PlacementRow[], maps: MapRow[]): string {
@@ -37,6 +37,19 @@ function upsert<T>(rows: T[], next: T[], key: keyof T): T[] {
   const merged = rows.map((r) => byKey.get(r[key]) ?? r);
   const known = new Set(rows.map((r) => r[key]));
   return [...merged, ...next.filter((r) => !known.has(r[key]))];
+}
+
+// Several changes as one: each step is built on the rows the one before it left, so redundant
+// columns (an item's map_ids) come out right however the steps overlap.
+export function in_sequence(data: Dataset, steps: ((d: Dataset) => Write[])[]): Write[] {
+  const out: Write[] = [];
+  let d = data;
+  for (const step of steps) {
+    const writes = step(d);
+    d = apply_writes(d, writes);
+    out.push(...writes);
+  }
+  return out;
 }
 
 // Applies writes to the in-memory dataset; used for the optimistic update.
@@ -136,25 +149,66 @@ export function delete_placement(data: Dataset, placement: PlacementRow, by: str
   ];
 }
 
+// The item and the shapes it still had share one timestamp, which is how restore_item tells them
+// apart from shapes that were removed from a map earlier, on purpose.
 export function delete_item(data: Dataset, item: ItemRow, by: string): Write[] {
+  const at = now();
   const placements = data.placements
     .filter((p) => p.item_id === item.item_id && p.status === "active")
-    .map((p) => touched({ ...p, status: "deleted" as const }, by));
+    .map((p) => touched({ ...p, status: "deleted" as const }, by, at));
   return [
-    { table: "items", rows: [touched({ ...item, status: "deleted" as const, map_ids: "" }, by)] },
+    { table: "items", rows: [touched({ ...item, status: "deleted" as const, map_ids: "" }, by, at)] },
     { table: "placements", rows: placements },
   ];
 }
 
+// Undoes delete_item: the item, and the shapes deleted with it. Shapes removed before that stay removed.
 export function restore_item(data: Dataset, item: ItemRow, by: string): Write[] {
   const placements = data.placements
-    .filter((p) => p.item_id === item.item_id && p.status === "deleted")
+    .filter((p) => p.item_id === item.item_id && p.status === "deleted" && p.updated_at === item.updated_at)
     .map((p) => touched({ ...p, status: "active" as const }, by));
   const all = upsert(data.placements, placements, "placement_id");
   const back = touched({ ...item, status: "active" as const }, by);
   return [
     { table: "items", rows: [with_map_ids(back, all, data.maps, by)] },
     { table: "placements", rows: placements },
+  ];
+}
+
+// Undoes delete_placement: one shape back on its map. Its item must be active.
+export function restore_placement(data: Dataset, placement: PlacementRow, by: string): Write[] {
+  const item = data.items.find((i) => i.item_id === placement.item_id);
+  if (!item || item.status !== "active") throw new Error("Restore the item first; this shape belongs to a deleted item.");
+  const back = touched({ ...placement, status: "active" as const }, by);
+  const placements = upsert(data.placements, [back], "placement_id");
+  return [
+    { table: "placements", rows: [back] },
+    { table: "items", rows: [with_map_ids(item, placements, data.maps, by)] },
+  ];
+}
+
+// Why this shape cannot move to that item, or null. One shape per item per map (docs/data-model.md).
+export function reassign_blocker(data: Dataset, placement: PlacementRow, target: ItemRow): string | null {
+  if (target.item_id === placement.item_id) return "That is the item it already belongs to.";
+  if (target.status !== "active") return `${target.name || "That item"} is deleted.`;
+  const there = data.placements.find((p) => p.placement_id === `${target.item_id}@${placement.map_id}` && p.status === "active");
+  return there ? `${target.name || "That item"} already has a shape on ${placement.map_name}. An item has one shape per map.` : null;
+}
+
+// The same outline, on the same map, now belonging to another item. The old row is marked deleted,
+// not removed, so the move can be undone by moving it back.
+export function reassign_placement(data: Dataset, placement: PlacementRow, target: ItemRow, by: string): Write[] {
+  const blocker = reassign_blocker(data, placement, target);
+  if (blocker) throw new Error(blocker);
+  const map = data.maps.find((m) => m.map_id === placement.map_id)!;
+  const prior = data.placements.find((p) => p.placement_id === `${target.item_id}@${map.map_id}`);
+  const moved = placement_row(target, map, JSON.parse(placement.geometry) as Polygon, prior ?? {}, by);
+  const gone = touched({ ...placement, status: "deleted" as const }, by);
+  const placements = upsert(data.placements, [moved, gone], "placement_id");
+  const owners = [placement.item_id, target.item_id].map((id) => data.items.find((i) => i.item_id === id)!).filter(Boolean);
+  return [
+    { table: "placements", rows: [gone, moved] },
+    { table: "items", rows: owners.map((i) => with_map_ids(i, placements, data.maps, by)) },
   ];
 }
 

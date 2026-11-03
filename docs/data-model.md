@@ -6,7 +6,11 @@ The rows live in Firestore — one collection per kind, one document per row, th
 
 ## What deleting means
 
-The app never removes a row. Deleting sets `status=deleted` plus `updated_by`/`updated_at`; restoring sets it back. The Firebase snapshot the import ran from stays in `data/firebase-snapshot-2026-11-03/`, untouched — anything the import leaves out is still there.
+The app never removes a row. Deleting sets `status=deleted` plus `updated_by`/`updated_at`; restoring sets it back.
+
+- **An item and the shapes deleted with it** share one `updated_at`. Restoring the item brings back exactly those shapes; a shape removed from a map earlier, on its own, stays removed.
+- **A shape removed from one map** comes back on its own, from the item table, while its item is in use.
+- **Moving a shape to another item** marks the old row deleted and writes the new one, so the move can be undone by moving it back. The Firebase snapshot the import ran from stays in `data/firebase-snapshot-2026-11-03/`, untouched — anything the import leaves out is still there.
 
 Common columns on every row:
 

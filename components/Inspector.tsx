@@ -18,6 +18,8 @@ type Props = {
   onDrawHere: () => void;
   onRemoveHere: () => void;
   onDeleteItem: () => void;
+  onMoveShape: () => void;
+  onCopyFrom: (mapId: string) => void;
 };
 
 // F5 + F6: what the old popup said, as a card that stays put while the map moves.
@@ -53,7 +55,7 @@ export default function Inspector(p: Props) {
         <footer className="admin">
           {confirming ? (
             <div className="confirm">
-              <span>{confirming === "here" ? `Remove this shape from ${p.currentMap.name}?` : `Delete ${p.item.name || "this item"} from every map?`} It can be restored.</span>
+              <span>{confirming === "here" ? `Remove this shape from ${p.currentMap.name}?` : `Delete ${p.item.name || "this item"} from every map?`} You can undo it, or restore it later from Items.</span>
               <button type="button" onClick={() => setConfirming(null)} disabled={p.saving}>Keep</button>
               <button type="button" className="destructive" disabled={p.saving} onClick={() => { (confirming === "here" ? p.onRemoveHere : p.onDeleteItem)(); setConfirming(null); }}>
                 {p.saving ? "Saving…" : confirming === "here" ? "Remove" : "Delete"}
@@ -63,7 +65,14 @@ export default function Inspector(p: Props) {
             <>
               <button type="button" onClick={p.onEditDetails}>Edit details</button>
               {p.onThisMap ? <button type="button" onClick={p.onEditShape}>Edit shape</button> : <button type="button" className="primary" onClick={p.onDrawHere}>Draw it on this map</button>}
+              {p.onThisMap && <button type="button" onClick={p.onMoveShape}>Move to another item</button>}
               {p.onThisMap && <button type="button" className="destructive-quiet" onClick={() => setConfirming("here")}>Remove from map</button>}
+              {!p.onThisMap && others.length > 0 && (
+                <div className="copy-from">
+                  <span className="note">Or start from its shape on</span>
+                  {others.map((m) => <button key={m.map_id} type="button" className="chip" disabled={p.saving} onClick={() => p.onCopyFrom(m.map_id)}>{m.year}</button>)}
+                </div>
+              )}
               <button type="button" className="destructive-quiet" onClick={() => setConfirming("item")}>Delete item</button>
             </>
           )}

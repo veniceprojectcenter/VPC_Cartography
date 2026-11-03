@@ -2,19 +2,20 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { ChevronDown, Download, Info, Layers as LayersIcon, LogIn, LogOut, Map as MapIcon, PenLine, Scan, Share2 } from "lucide-react";
+import { ChevronDown, Download, Info, Layers as LayersIcon, LogIn, LogOut, Map as MapIcon, PenLine, Scan, Share2, Table as TableIcon } from "lucide-react";
 import type { MapMode, MapViewHandle } from "./MapView";
 import { LayersPanel, MapsPanel } from "./Panels";
 import SignInSheet from "./SignInSheet";
 import SearchBox from "./SearchBox";
 import Inspector from "./Inspector";
+import ItemTable from "./ItemTable";
 import ItemForm, { type ItemFormResult } from "./ItemForm";
 import MapForm from "./MapForm";
 import AboutSheet from "./AboutSheet";
 import { Toasts, useToasts } from "./Toasts";
-import { layers_from_items, type ItemRow, type MapRow } from "@/lib/rows";
+import { layers_from_items, type ItemRow, type MapRow, type PlacementRow } from "@/lib/rows";
 import { load_dataset, save_rows, type Dataset, type Write } from "@/lib/store-client";
-import { apply_writes, publish_blocker, publish_tileset, create_item, delete_item, delete_placement, place_existing_item, update_item, update_layer, update_shape, save_map, type MapFields } from "@/lib/edits";
+import { apply_writes, publish_blocker, publish_tileset, create_item, delete_item, delete_placement, in_sequence, place_existing_item, reassign_blocker, reassign_placement, restore_item, restore_placement, update_item, update_layer, update_shape, save_map, type MapFields } from "@/lib/edits";
 import { signed_in_email, sign_out } from "@/lib/auth-client";
 import { build_share_url, read_view_from_url } from "@/lib/share";
 import type { Polygon } from "@/lib/geometry";
@@ -26,7 +27,7 @@ const DEFAULT_MAP = "debarbari";
 // Panel width + its two gutters (globals.css --panel-w, --gap): a fit or focus keeps clear of an open panel.
 const PANEL_INSET = 344;
 
-type Sheet = null | { kind: "new-shape"; geometry: Polygon } | { kind: "edit-item"; item: ItemRow } | { kind: "map"; map?: MapRow } | { kind: "about" } | { kind: "sign-in" };
+type Sheet = null | { kind: "new-shape"; geometry: Polygon } | { kind: "edit-item"; item: ItemRow } | { kind: "map"; map?: MapRow } | { kind: "about" } | { kind: "sign-in" } | { kind: "items" } | { kind: "move-shape"; placement: PlacementRow };
 type Panel = null | "maps" | "layers";
 
 export default function Explorer() {
@@ -104,23 +105,42 @@ export default function Explorer() {
     requestAnimationFrame(() => mapRef.current?.focus_placement(target));
   }, [visiblePlacements]);
 
-  const commit = useCallback(async (writes: Write[], success: string) => {
-    if (!data) return false;
-    const before = data;
+  // The dataset as it is now; an Undo pressed seconds later must start from the rows as they are then.
+  const dataRef = useRef(data);
+  useEffect(() => { dataRef.current = data; }, [data]);
+
+  // Applies at once, saves, and puts it back if the save fails. `undo` builds the reverse from the
+  // rows as they are when Undo is pressed; the toast offers it.
+  const commit = useCallback(async function run(writes: Write[], success: string, undo?: (d: Dataset) => Write[]): Promise<boolean> {
+    const current = dataRef.current;
+    if (!current) return false;
     setSaving(true);
-    setData(apply_writes(data, writes));
+    const next = apply_writes(current, writes);
+    dataRef.current = next;
+    setData(next);
     try {
       await save_rows(writes.filter((w) => w.rows.length));
-      toasts.push({ tone: "success", text: success });
+      toasts.push({
+        tone: "success",
+        text: success,
+        action: undo && { label: "Undo", run: () => {
+          try {
+            run(undo(dataRef.current!), "Undone.");
+          } catch (e) {
+            toasts.push({ tone: "error", text: `Could not undo: ${(e as Error).message}` });
+          }
+        } },
+      });
       return true;
     } catch (e) {
-      setData(before);
+      dataRef.current = current;
+      setData(current);
       toasts.push({ tone: "error", text: `Not saved — ${(e as Error).message}. Nothing changed.` });
       return false;
     } finally {
       setSaving(false);
     }
-  }, [data, toasts]);
+  }, [toasts]);
 
   function open_item_on_map(item: ItemRow, targetMapId: string) {
     setSelectedItemId(item.item_id);
@@ -206,6 +226,67 @@ export default function Explorer() {
       setSheet(null);
       setLayerIds((ids) => (ids.includes(layerId) ? ids : [...ids, layerId]));
       setSelectedItemId(itemId);
+    }
+  }
+
+  // A pure edit that refuses (throws) shows why, instead of failing silently.
+  function guarded(run: () => unknown) {
+    try {
+      run();
+    } catch (e) {
+      toasts.push({ tone: "error", text: (e as Error).message });
+    }
+  }
+
+  // Reassign one shape: to an item that exists, or to a new one made from it. Undo puts it back.
+  async function move_shape(placement: PlacementRow, result: ItemFormResult) {
+    if (!data || !currentMap) return;
+    const from = placement.placement_id;
+    let to = "";
+    let writes: Write[];
+    try {
+      if (result.kind === "existing") {
+        writes = reassign_placement(data, placement, result.item, user!);
+        to = `${result.item.item_id}@${placement.map_id}`;
+      } else {
+        const geometry = JSON.parse(placement.geometry) as Polygon;
+        writes = in_sequence(data, [
+          (d) => create_item(d, result.fields, result.layer, currentMap, geometry, user!),
+          (d) => delete_placement(d, d.placements.find((p) => p.placement_id === from)!, user!),
+        ]);
+        to = (writes.find((w) => w.table === "placements")!.rows[0] as PlacementRow).placement_id;
+      }
+    } catch (e) {
+      toasts.push({ tone: "error", text: (e as Error).message });
+      return;
+    }
+    const target = to.split("@")[0];
+    const name = result.kind === "existing" ? result.item.name : result.fields.name.trim();
+    const undo = (d: Dataset) => in_sequence(d, [
+      (x) => delete_placement(x, x.placements.find((p) => p.placement_id === to)!, user!),
+      ...(result.kind === "new" ? [(x: Dataset) => delete_item(x, x.items.find((i) => i.item_id === target)!, user!)] : []),
+      (x) => restore_placement(x, x.placements.find((p) => p.placement_id === from)!, user!),
+    ]);
+    if (await commit(writes, `Shape moved to ${name || "the item"}.`, undo)) {
+      setSheet(null);
+      const layer = data.items.find((i) => i.item_id === target)?.layer_id ?? (result.kind === "new" ? result.layer.layer_id : "");
+      setLayerIds((ids) => (!layer || ids.includes(layer) ? ids : [...ids, layer]));
+      setSelectedItemId(target);
+    }
+  }
+
+  // Start this item's shape here from its outline on another map, then go straight to reshaping it.
+  async function copy_shape_from(item: ItemRow, fromMapId: string) {
+    const source = data?.placements.find((p) => p.placement_id === `${item.item_id}@${fromMapId}` && p.status === "active");
+    const fromMap = mapsById.get(fromMapId);
+    if (!data || !currentMap || !source || !fromMap || !mapRef.current) return;
+    const geometry = mapRef.current.fit_copy(JSON.parse(source.geometry) as Polygon, fromMap);
+    const id = `${item.item_id}@${currentMap.map_id}`;
+    const ok = await commit(place_existing_item(data, item, currentMap, geometry, user!), `Copied from ${fromMap.name}. Move and reshape it, then save.`,
+      (d) => delete_placement(d, d.placements.find((p) => p.placement_id === id)!, user!));
+    if (ok) {
+      setLayerIds((ids) => (ids.includes(item.layer_id) ? ids : [...ids, item.layer_id]));
+      setMode("edit");
     }
   }
 
@@ -295,6 +376,7 @@ export default function Explorer() {
       {canEdit && mode === "view" && (
         <div className="editbar glass">
           <button type="button" className="primary" onClick={() => { setSelectedItemId(null); setMode("draw"); }}>Draw a shape</button>
+          <button type="button" onClick={() => setSheet({ kind: "items" })}><TableIcon /> Items</button>
           <span className="hint">Click a shape to edit it.</span>
         </div>
       )}
@@ -309,6 +391,7 @@ export default function Explorer() {
         <div className="editbar glass">
           <span className="hint"><b>Editing shape.</b> Drag points; click an edge to add one; shift-click deletes; alt-drag moves it all. Snaps to neighbours.</span>
           <button type="button" onClick={() => mapRef.current?.undo()}>Undo</button>
+          <button type="button" onClick={() => mapRef.current?.redo()}>Redo</button>
           <button type="button" onClick={cancel_mode} disabled={saving}>Cancel</button>
           <button type="button" className="primary" onClick={finish_shape_edit} disabled={saving}>{saving ? "Saving…" : "Save shape"}</button>
         </div>
@@ -332,9 +415,15 @@ export default function Explorer() {
           onOpenOn={(id) => open_item_on_map(selectedItem, id)}
           onEditDetails={() => setSheet({ kind: "edit-item", item: selectedItem })}
           onEditShape={() => setMode("edit")}
+          onMoveShape={() => placementHere && setSheet({ kind: "move-shape", placement: placementHere })}
+          onCopyFrom={(fromId) => copy_shape_from(selectedItem, fromId)}
           onDrawHere={() => setMode("draw")}
-          onRemoveHere={() => placementHere && commit(delete_placement(data, placementHere, user!), `Removed from ${currentMap.name}.`)}
-          onDeleteItem={async () => { if (await commit(delete_item(data, selectedItem, user!), `${selectedItem.name || "Item"} deleted. It can be restored.`)) setSelectedItemId(null); }}
+          onRemoveHere={() => placementHere && commit(delete_placement(data, placementHere, user!), `Removed from ${currentMap.name}.`,
+            (d) => restore_placement(d, d.placements.find((p) => p.placement_id === placementHere.placement_id)!, user!))}
+          onDeleteItem={async () => {
+            const id = selectedItem.item_id;
+            if (await commit(delete_item(data, selectedItem, user!), `${selectedItem.name || "Item"} deleted.`, (d) => restore_item(d, d.items.find((i) => i.item_id === id)!, user!))) setSelectedItemId(null);
+          }}
         />
       )}
 
@@ -391,6 +480,35 @@ export default function Explorer() {
         />
       )}
       {sheet?.kind === "about" && <AboutSheet onClose={() => setSheet(null)} />}
+      {sheet?.kind === "items" && (
+        <ItemTable
+          data={data}
+          layers={layers}
+          mapsById={mapsById}
+          saving={saving}
+          onClose={() => setSheet(null)}
+          onSave={(item, fields, layer) => commit(update_item(data, item, fields, layer, user!), `${fields.name.trim()} saved.`)}
+          onDelete={(item) => commit(delete_item(data, item, user!), `${item.name || "Item"} deleted.`, (d) => restore_item(d, d.items.find((i) => i.item_id === item.item_id)!, user!))}
+          onRestore={(item) => commit(restore_item(data, item, user!), `${item.name || "Item"} restored.`, (d) => delete_item(d, d.items.find((i) => i.item_id === item.item_id)!, user!))}
+          onRestorePlacement={(pl) => guarded(() => commit(restore_placement(data, pl, user!), `${pl.item_name || "Shape"} is back on ${pl.map_name}.`,
+            (d) => delete_placement(d, d.placements.find((x) => x.placement_id === pl.placement_id)!, user!)))}
+          onOpenOn={(item, id) => { setSheet(null); open_item_on_map(item, id); }}
+        />
+      )}
+      {sheet?.kind === "move-shape" && (
+        <ItemForm
+          title={`Move this shape on ${currentMap.name}`}
+          items={data.items}
+          layers={layers}
+          currentMap={currentMap}
+          defaultLayerId={sheet.placement.layer_id}
+          saving={saving}
+          existingBlocker={(target) => reassign_blocker(data, sheet.placement, target)}
+          submitLabels={{ existing: "Move it here", new: "Move to new item" }}
+          onCancel={() => setSheet(null)}
+          onSubmit={(result) => move_shape(sheet.placement, result)}
+        />
+      )}
 
       {sheet?.kind === "sign-in" && (
         <SignInSheet onClose={() => setSheet(null)} onSignedIn={(email) => {

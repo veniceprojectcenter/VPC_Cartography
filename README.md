@@ -18,7 +18,7 @@ Open http://localhost:3000. Tiles come from cartography.veniceprojectcenter.org;
 
 The top bar holds the two pickers: the map (its name, opens the list of maps) and **Layers** (what is drawn on it). Each opens its own panel with a filter, so long lists stay usable.
 
-**Sign in** (top right) to edit. Locally there is one admin, set in `.env.local` — copy `.env.example`, fill in an email and password, restart. Signed in, **Edit** lets you draw, reshape and delete shapes, and edit items, layers and maps; the door icon signs out. Saves go straight into the CSVs — `git diff data/` shows what you changed, `git checkout data/` takes it back. Deleting never removes a row; it sets `status=deleted`.
+**Sign in** (top right) to edit. Locally there is one admin, set in `.env.local` — copy `.env.example`, fill in an email and password, restart. Signed in, **Edit** lets you draw, reshape and delete shapes, and edit items, layers and maps; the door icon signs out. **Items** (in the edit bar) is the whole list as a table: find, fix details in place, delete, and restore. A selected shape can also be moved to another item, or started from the item's outline on another map. Deletes and moves can be undone from the message that confirms them. Saves go straight into the CSVs — `git diff data/` shows what you changed, `git checkout data/` takes it back. Deleting never removes a row; it sets `status=deleted`.
 
 **New map from an image** (Maps panel, signed in) opens `/upload`. The image is cut into tiles in the browser and uploaded, locally into `uploads/`. A map only switches to new tiles once every tile is stored. A stopped upload can be resumed with the same file, and the map's sheet lists every tile set it has had, so you can go back to an earlier one.
 

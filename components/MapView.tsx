@@ -1,7 +1,7 @@
 "use client";
 
 import "ol/ol.css";
-import { useEffect, useImperativeHandle, useRef, type Ref } from "react";
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, type Ref } from "react";
 import OlMap from "ol/Map";
 import View from "ol/View";
 import TileLayer from "ol/layer/Tile";
@@ -11,7 +11,7 @@ import VectorSource from "ol/source/Vector";
 import Collection from "ol/Collection";
 import GeoJSON from "ol/format/GeoJSON";
 import type Feature from "ol/Feature";
-import type { Geometry } from "ol/geom";
+import { Polygon as OlPolygon, type Geometry } from "ol/geom";
 import { Fill, Stroke, Style } from "ol/style";
 import { asArray } from "ol/color";
 import { Projection, transformExtent, type ProjectionLike } from "ol/proj";
@@ -27,6 +27,9 @@ export type MapMode = "view" | "draw" | "edit" | "box";
 export type MapViewHandle = {
   focus_placement: (placementId: string) => void;
   undo: () => void;
+  redo: () => void;
+  // A shape from another map, resized and centred in the current view: a starting point to adjust.
+  fit_copy: (geometry: Polygon, fromMap: MapRow) => Polygon;
   edited_geometry: () => Polygon | null;
   export_view: () => Promise<Blob>;
 };
@@ -166,16 +169,34 @@ export default function MapView({ ref, map, placements, selectedId, mode, editin
   const viewAll = useRef<ZoomToExtent | null>(null);
   const vectorSource = useRef(new VectorSource<Feature<Geometry>>());
   const sketchSource = useRef(new VectorSource<Feature<Geometry>>());
+  // Shape-edit history: earlier outlines to undo to, and undone ones to redo.
   const history = useRef<Geometry[]>([]);
+  const future = useRef<Geometry[]>([]);
   const activeDraw = useRef<Draw | null>(null);
+  // The latest props, for OpenLayers handlers that outlive a render. Synced before any other effect runs.
   const state = useRef({ selectedId, editingId, mode });
-  state.current = { selectedId, editingId, mode };
   const callbacks = useRef({ onSelect, onDrawn, onBox, onCancelMode });
-  callbacks.current = { onSelect, onDrawn, onBox, onCancelMode };
   const insetRef = useRef(insetLeft);
-  insetRef.current = insetLeft;
+  useLayoutEffect(() => {
+    state.current = { selectedId, editingId, mode };
+    callbacks.current = { onSelect, onDrawn, onBox, onCancelMode };
+    insetRef.current = insetLeft;
+  });
   // The current map's frame; features are read and written through its GeoJSON format.
   const frameRef = useRef<Frame | null>(null);
+
+  // One step back (undo) or forward (redo) through the shape's outlines; refs only, so stable.
+  const step = useCallback((back: boolean) => {
+    const id = state.current.editingId;
+    const feature = id ? (vectorSource.current.getFeatureById(id) as Feature<Geometry> | null) : null;
+    const [from, to] = back ? [history.current, future.current] : [future.current, history.current];
+    const target = from.pop();
+    if (!feature || !target) return;
+    to.push(feature.getGeometry()!.clone());
+    feature.setGeometry(target);
+  }, []);
+  const undoEdit = useCallback(() => step(true), [step]);
+  const redoEdit = useCallback(() => step(false), [step]);
 
   // One OpenLayers map for the component's life.
   useEffect(() => {
@@ -297,17 +318,21 @@ export default function MapView({ ref, map, placements, selectedId, mode, editin
       if (feature) {
         // Cancelling needs no copy here: the caller hands back fresh placements and the features are rebuilt from rows.
         history.current = [];
+        future.current = [];
         const features = new Collection([feature]);
         // F15: shift-click deletes a vertex; a plain click on an edge adds one.
         const modify = add(new Modify({ features, deleteCondition: (e) => shiftKeyOnly(e) && singleClick(e) }));
         const translate = add(new Translate({ features, condition: altKeyOnly }));
         add(new Snap({ source: vectorSource.current }));
-        const remember = () => history.current.push(feature.getGeometry()!.clone());
+        // A new change makes the undone ones unreachable, as in any editor.
+        const remember = () => { history.current.push(feature.getGeometry()!.clone()); future.current = []; };
         modify.on("modifystart", remember);
         translate.on("translatestart", remember);
         onKey = (e) => {
           if (isTyping(e)) return;
-          if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); undoEdit(); }
+          const key = e.key.toLowerCase();
+          if ((e.ctrlKey || e.metaKey) && ((key === "z" && e.shiftKey) || key === "y")) { e.preventDefault(); redoEdit(); }
+          else if ((e.ctrlKey || e.metaKey) && key === "z") { e.preventDefault(); undoEdit(); }
           if (e.key === "Escape") callbacks.current.onCancelMode();
         };
       }
@@ -339,14 +364,8 @@ export default function MapView({ ref, map, placements, selectedId, mode, editin
       activeDraw.current = null;
       if (mode === "draw") sketch.clear();
     };
-  }, [mode, editingId]);
+  }, [mode, editingId, undoEdit, redoEdit]);
 
-  function undoEdit() {
-    const id = state.current.editingId;
-    const feature = id ? (vectorSource.current.getFeatureById(id) as Feature<Geometry> | null) : null;
-    const previous = history.current.pop();
-    if (feature && previous) feature.setGeometry(previous);
-  }
 
   useImperativeHandle(ref, () => ({
     focus_placement(placementId) {
@@ -362,6 +381,21 @@ export default function MapView({ ref, map, placements, selectedId, mode, editin
       if (state.current.mode === "draw") activeDraw.current?.removeLastPoint();
       else undoEdit();
     },
+    redo: redoEdit,
+    fit_copy(geometry, fromMap) {
+      // Maps are drawn at different scales and in different frames, so the copy keeps its outline
+      // and proportions (taken in the source map's own planar units), not its size or place.
+      const source = map_frame(fromMap).geojson.readGeometry(geometry) as OlPolygon;
+      const view = olRef.current!.getView();
+      const [vx0, vy0, vx1, vy1] = view.calculateExtent(olRef.current!.getSize());
+      const [sx0, sy0, sx1, sy1] = source.getExtent();
+      // A third of the view's shorter side: big enough to grab, small enough to see where it goes.
+      const scale = (Math.min(vx1 - vx0, vy1 - vy0) / 3) / Math.max(sx1 - sx0, sy1 - sy0, 1e-9);
+      const [cx, cy] = [(vx0 + vx1) / 2, (vy0 + vy1) / 2];
+      const [scx, scy] = [(sx0 + sx1) / 2, (sy0 + sy1) / 2];
+      const placed = new OlPolygon(source.getCoordinates().map((ring) => ring.map(([x, y]) => [cx + (x - scx) * scale, cy + (y - scy) * scale])));
+      return frameRef.current!.geojson.writeGeometryObject(placed) as Polygon;
+    },
     edited_geometry() {
       const id = state.current.editingId;
       const geom = id ? vectorSource.current.getFeatureById(id)?.getGeometry() : null;
@@ -372,7 +406,7 @@ export default function MapView({ ref, map, placements, selectedId, mode, editin
       await rendered(olMap);
       return canvas_blob(compose_canvas(olMap));
     },
-  }), [map]);
+  }), [map, undoEdit, redoEdit]);
 
   return <div ref={host} className="map-host" data-mode={mode} />;
 }

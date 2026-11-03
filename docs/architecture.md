@@ -77,7 +77,12 @@ Ported function, new finish, per ali-skills 11: Apple system colours (blue, whit
 1. Import Firebase snapshot → CSV, with reconciled counts; seed the Firestore emulator. **Done.**
 2. Viewer baseline on OpenLayers; overlay check against `main`. **Done.**
 3. Remaining viewer features F2–F11. **Done.**
-4. Auth and security rules; editor F13–F18 plus the added controls. **Done**, except these added controls, still to build: copy a polygon from another map, reassign a polygon to another item, item table, restore from the UI.
+4. Auth and security rules; editor F13–F18 plus the added controls. **Done.** The added controls:
+   - **Undo** on every delete, restore and move, from its toast.
+   - **Shape editing** has undo and redo (Ctrl+Z, Ctrl+Shift+Z or Ctrl+Y).
+   - **Item table** (Edit → Items): find by name or code across every layer and map, sort, edit in place, delete, restore, and put back a shape removed from one map.
+   - **Move a shape** to another item, or to a new item made from it. An item has one shape per map, so a target already drawn there is refused, with the reason.
+   - **Start a shape from the item's outline on another map.** It is placed in the middle of the view at a third of its size, keeping the outline's proportions, then opened for reshaping.
 5. Uploader. **Done.**
 6. S3 for images. **Done in code**, checked through the local store that speaks the same signed-URL contract; not yet run against a real bucket.
 7. Release: `docs/release.md`.

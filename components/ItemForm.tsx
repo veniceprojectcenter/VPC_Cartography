@@ -16,6 +16,9 @@ type Props = {
   preselectedItem?: ItemRow | null;
   defaultLayerId?: string;
   saving: boolean;
+  // Moving a shape: why an existing item cannot take it (shown, and Save disabled), and the button words.
+  existingBlocker?: (item: ItemRow) => string | null;
+  submitLabels?: { existing: string; new: string };
   onCancel: () => void;
   onSubmit: (result: ItemFormResult) => void;
 };
@@ -54,7 +57,8 @@ export default function ItemForm(p: Props) {
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
   }, [p.items, filterLayer, query]);
   const picked = p.items.find((i) => i.item_id === pickedId);
-  const replacesShape = picked?.map_ids.split("|").includes(p.currentMap.map_id);
+  const blocked = picked && p.existingBlocker ? p.existingBlocker(picked) : null;
+  const replacesShape = !p.existingBlocker && picked?.map_ids.split("|").includes(p.currentMap.map_id);
 
   const newLayerId = slug(newLayerName);
   const layerTaken = p.layers.some((l) => l.layer_id === newLayerId);
@@ -77,14 +81,14 @@ export default function ItemForm(p: Props) {
     p.onSubmit({ kind: "new", fields: { name, code, link }, layer });
   }
 
-  const canSubmit = tab === "existing" ? !!picked : true;
+  const canSubmit = tab === "existing" ? !!picked && !blocked : true;
 
   return (
     <Sheet title={p.title} onClose={p.onCancel}
       footer={<>
         <button type="button" onClick={p.onCancel} disabled={p.saving}>Cancel</button>
         <button type="button" className="primary" onClick={submit} disabled={p.saving || !canSubmit} title={!canSubmit ? "Pick an item first" : undefined}>
-          {p.saving ? "Saving…" : p.editing ? "Save details" : tab === "existing" ? (replacesShape ? "Replace its shape" : "Add shape") : "Create item"}
+          {p.saving ? "Saving…" : p.editing ? "Save details" : p.submitLabels ? p.submitLabels[tab] : tab === "existing" ? (replacesShape ? "Replace its shape" : "Add shape") : "Create item"}
         </button>
       </>}>
       {!p.editing && (
@@ -118,6 +122,7 @@ export default function ItemForm(p: Props) {
               );
             })}
           </ul>
+          {blocked && <p className="error" role="alert">{blocked}</p>}
           {replacesShape && <p className="note">{picked?.name} already has a shape on {p.currentMap.name}; saving replaces it.</p>}
         </div>
       )}
