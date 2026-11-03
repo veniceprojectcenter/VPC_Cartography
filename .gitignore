@@ -1,0 +1,7 @@
+# Tiles live outside git (local folder now, S3 later). Never commit imagery.
+/maps/
+/tiles/
+.DS_Store
+node_modules/
+.next/
+.env*.local
