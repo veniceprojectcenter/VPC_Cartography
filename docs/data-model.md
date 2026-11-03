@@ -63,8 +63,8 @@ The layer lives here. There is no layers file: an item belongs to exactly one la
 | `item_name`, `item_code`, `item_link` | | redundant copies |
 | `layer_id`, `layer_name`, `layer_color` | | redundant copies |
 | `map_name`, `map_year` | | redundant copies |
-| `geometry` | `{"type":"Polygon","coordinates":[[[284.8,-80.3],…]]}` | GeoJSON string, in the map's own `crs`, verbatim |
-| `center_lat`, `center_lng`, `zoom` | | |
+| `geometry` | `{"type":"Polygon","coordinates":[[[-75.2,-80.3],…]]}` | GeoJSON string, lon/lat on the map's own `crs`; see Import for the longitude wrap |
+| `center_lat`, `center_lng` | | Bounding-box centre of this polygon on this map |
 
 The viewer draws a layer from placements alone — one query on `map_id` + `layer_id`, no join.
 
@@ -92,6 +92,13 @@ Other import rules:
 - **Canals.** The layer stored with id `""` becomes `canals`.
 - **`lagoon-isles`.** Not in the old layers list; imported with `layer_name=lagoon-isles` and the colour the old viewer fell back to, `#3388ff`. The admin names it.
 - **`map_ids`** is rebuilt from placements. The old `maps` array is dropped; where it listed a map with no polygon (53 cases), that map just led to an empty view.
-- **`center`** normalised from `[lat,lng]` or `{lat,lng}`.
+- **Longitudes wrapped.** Leaflet 0.7 repeated the tiles but not the shapes, so some polygons were drawn on a copy of the map (longitudes seen from −797 to 462). Each is shifted by whole turns of 360° until its mean longitude is in [−180, 180): same tile, same pixel. Afterwards 2,105 of 2,106 centres fall inside their map's image; the one outside (San Giorgio Maggiore on `debarbari`) was drawn off the image and is kept for an admin to move.
+- **Centres** are computed per placement from the polygon. The old single `center` and `zoom` per feature are dropped: one centre cannot be right on eight differently drawn maps.
+- **`min_zoom`** is the old viewer's 2; **`max_zoom`** and **`bounds`** come from `data/tile-extents.json`, measured off the tile tree by `scripts/measure-tiles.ts` (replaces the `debarbari ? 8 : 7` hack, D3).
+- **Tiles** point at `https://cartography.veniceprojectcenter.org/maps/<folder>/{z}/{x}/{-y}.png` until S3; `bordone` is folder `1528` (D20).
+
+## Local trial store
+
+Until Firestore is wired, `app/api/rows` reads and writes the three CSVs directly, in development only. Same rows, same columns, so the move is an adapter swap.
 
 Import checks, printed as counts; the import fails if they don't reconcile with the tables above.

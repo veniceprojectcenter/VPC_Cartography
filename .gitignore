@@ -1,7 +1,14 @@
 # Tiles live outside git (local folder now, S3 later). Never commit imagery.
 /maps/
 /tiles/
+
+/node_modules
+/.next/
+/out/
+/build
+*.tsbuildinfo
+next-env.d.ts
+.env*
 .DS_Store
-node_modules/
-.next/
-.env*.local
+*.pem
+npm-debug.log*
