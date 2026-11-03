@@ -1,3 +1,5 @@
+import { cookies } from "next/headers";
+import { SESSION_COOKIE, email_from_session } from "@/lib/auth-local";
 import { read_table, upsert_rows } from "@/lib/csv-store";
 import type { Table } from "@/lib/rows";
 
@@ -13,6 +15,10 @@ export async function GET() {
 export async function POST(request: Request) {
   if (process.env.NODE_ENV === "production") {
     return Response.json({ error: "Editing writes local CSV files and is only on in development." }, { status: 403 });
+  }
+  const jar = await cookies();
+  if (!email_from_session(jar.get(SESSION_COOKIE)?.value)) {
+    return Response.json({ error: "you are signed out — sign in again" }, { status: 401 });
   }
   const body = (await request.json()) as { writes?: { table: Table; rows: Record<string, string>[] }[] };
   const writes = body.writes ?? [];

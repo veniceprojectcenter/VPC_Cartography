@@ -16,7 +16,9 @@ npm run dev
 
 Open http://localhost:3000. Tiles come from cartography.veniceprojectcenter.org; the data is `data/*.csv`.
 
-**Edit** (top right, dev only) lets you draw, reshape and delete shapes, and edit items, layers and maps. Saves go straight into the CSVs — `git diff data/` shows what you changed, `git checkout data/` takes it back. Deleting never removes a row; it sets `status=deleted`.
+The top bar holds the two pickers: the map (its name, opens the list of maps) and **Layers** (what is drawn on it). Each opens its own panel with a filter, so long lists stay usable.
+
+**Sign in** (top right) to edit. Locally there is one admin, set in `.env.local` — copy `.env.example`, fill in an email and password, restart. Signed in, **Edit** lets you draw, reshape and delete shapes, and edit items, layers and maps; the door icon signs out. Saves go straight into the CSVs — `git diff data/` shows what you changed, `git checkout data/` takes it back. Deleting never removes a row; it sets `status=deleted`.
 
 ## Rebuilding the data
 

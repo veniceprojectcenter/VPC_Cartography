@@ -112,7 +112,7 @@ function rendered(olMap: OlMap): Promise<void> {
   });
 }
 
-// Fits leave room for whatever floats over the left edge (the sidebar), so nothing lands under it.
+// Fits leave room for whatever floats over the left edge (an open panel), so nothing lands under it.
 function padding(insetLeft: number, base: number): number[] {
   return [base, base / 2, base / 2, insetLeft + base / 2];
 }
