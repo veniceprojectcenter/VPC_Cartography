@@ -30,12 +30,17 @@ const use_s3 = () => process.env.IMAGE_STORE === "s3";
 
 // ---------- S3 ----------
 
+// On Vercel, AWS_ROLE_ARN: the function trades its short-lived Vercel OIDC token for the role's
+// credentials, so the host holds no AWS secret that could leak or need rotating. Elsewhere, the
+// SDK's usual chain (AWS_* variables, ~/.aws).
 async function s3() {
   const { S3Client } = await import("@aws-sdk/client-s3");
   const bucket = process.env.S3_BUCKET;
   const region = process.env.S3_REGION;
   if (!bucket || !region) throw new Error("IMAGE_STORE=s3 needs S3_BUCKET and S3_REGION");
-  return { client: new S3Client({ region }), bucket, region };
+  const roleArn = process.env.AWS_ROLE_ARN;
+  const credentials = roleArn ? (await import("@vercel/functions/oidc")).awsCredentialsProvider({ roleArn, clientConfig: { region } }) : undefined;
+  return { client: new S3Client({ region, credentials }), bucket, region };
 }
 
 // ---------- local ----------

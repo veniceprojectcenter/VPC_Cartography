@@ -1,6 +1,8 @@
 // Server-only. The Admin SDK, for verifying ID tokens in route handlers and for the scripts.
 // Against the emulator it needs only the project id (FIREBASE_AUTH_EMULATOR_HOST / FIRESTORE_EMULATOR_HOST set);
-// against a real project, GOOGLE_APPLICATION_CREDENTIALS names a service-account key file.
+// against a real project, the scripts need GOOGLE_APPLICATION_CREDENTIALS (a service-account key file)
+// to write rows and claims. The host does not: checking an ID token needs only the project id and
+// Google's public certificates, so the site carries no service-account secret at all.
 
 import { getApps, initializeApp, applicationDefault } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
@@ -9,8 +11,8 @@ import { getFirestore } from "firebase-admin/firestore";
 function app() {
   const projectId = process.env.FIREBASE_PROJECT_ID ?? process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
   if (!projectId) throw new Error("FIREBASE_PROJECT_ID is not set");
-  const onEmulator = !!(process.env.FIREBASE_AUTH_EMULATOR_HOST || process.env.FIRESTORE_EMULATOR_HOST);
-  return getApps()[0] ?? initializeApp(onEmulator ? { projectId } : { projectId, credential: applicationDefault() });
+  const keyed = !!process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  return getApps()[0] ?? initializeApp(keyed ? { projectId, credential: applicationDefault() } : { projectId });
 }
 
 export const admin_auth = () => getAuth(app());

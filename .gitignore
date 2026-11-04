@@ -13,7 +13,9 @@ next-env.d.ts
 *.pem
 npm-debug.log*
 !.env.example
+!.env.production
 /public/vendor/
 /uploads/
 /.emulator-data/
 *.log
+/.vercel

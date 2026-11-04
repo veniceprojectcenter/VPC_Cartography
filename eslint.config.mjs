@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Copied from node_modules at install (scripts/copy-vendor.mjs); not ours to lint.
+    "public/vendor/**",
   ]),
 ]);
 

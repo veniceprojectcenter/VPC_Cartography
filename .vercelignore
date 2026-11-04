@@ -1,0 +1,12 @@
+# What `vercel deploy` must never upload. .env.local holds the local trial's settings and admin
+# password, and would override .env.production on the host.
+.env.local
+.env.*.local
+.vercel
+node_modules
+.next
+maps
+tiles
+uploads
+.emulator-data
+*.log
