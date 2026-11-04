@@ -1,12 +1,13 @@
 # What `vercel deploy` must never upload. .env.local holds the local trial's settings and admin
-# password, and would override .env.production on the host.
-.env.local
-.env.*.local
-.vercel
-node_modules
-.next
-maps
-tiles
-uploads
-.emulator-data
+# password, and would override .env.production on the host. Every entry is anchored with a leading
+# slash: a bare `tiles` also matched app/api/tiles and dropped the upload route from the build.
+/.env.local
+/.env.*.local
+/.vercel
+/node_modules
+/.next
+/maps
+/tiles
+/uploads
+/.emulator-data
 *.log
