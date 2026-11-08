@@ -16,7 +16,8 @@ import { Fill, Stroke, Style } from "ol/style";
 import { asArray } from "ol/color";
 import { Projection, transformExtent, type ProjectionLike } from "ol/proj";
 import TileGrid from "ol/tilegrid/TileGrid";
-import { OverviewMap, ZoomToExtent, defaults as defaultControls } from "ol/control";
+import { ZoomToExtent, defaults as defaultControls } from "ol/control";
+import MiniMap from "./MiniMap";
 import { DragBox, Draw, Modify, Snap, Translate } from "ol/interaction";
 import { altKeyOnly, always, shiftKeyOnly, singleClick } from "ol/events/condition";
 import type { MapRow, PlacementRow } from "@/lib/rows";
@@ -165,7 +166,7 @@ export default function MapView({ ref, map, placements, selectedId, mode, editin
   const host = useRef<HTMLDivElement>(null);
   const olRef = useRef<OlMap | null>(null);
   const tileLayer = useRef<TileLayer<XYZ> | null>(null);
-  const overview = useRef<OverviewMap | null>(null);
+  const overview = useRef<MiniMap | null>(null);
   const viewAll = useRef<ZoomToExtent | null>(null);
   const vectorSource = useRef(new VectorSource<Feature<Geometry>>());
   const sketchSource = useRef(new VectorSource<Feature<Geometry>>());
@@ -256,13 +257,7 @@ export default function MapView({ ref, map, placements, selectedId, mode, editin
 
     if (overview.current) olMap.removeControl(overview.current);
     if (viewAll.current) olMap.removeControl(viewAll.current);
-    // Without its own extent the minimap zooms out to the whole globe, where these images are a sliver at the pole.
-    overview.current = new OverviewMap({
-      layers: [new TileLayer({ source: tile_source(map, frame), extent })],
-      view: frame_view(map, frame, { showFullExtent: true }),
-      collapsed: false,
-      className: "ol-overviewmap minimap",
-    });
+    overview.current = new MiniMap({ source: tile_source(map, frame), projection: frame.projection, extent });
     viewAll.current = new ZoomToExtent({ extent, label: "⤢", tipLabel: "View the whole map" });
     olMap.addControl(overview.current);
     olMap.addControl(viewAll.current);

@@ -385,10 +385,7 @@ a.add-row { text-decoration: none; padding: 7px 12px; }
   font-size: 18px !important; border-radius: 9px !important;
 }
 .ol-zoom button:hover, .ol-zoom-extent button:hover { background: var(--fill) !important; }
-.minimap.ol-overviewmap { left: auto; right: 64px; bottom: var(--gap); border-radius: 12px; overflow: hidden; border: 1px solid var(--glass-border); box-shadow: var(--shadow); background: var(--glass); }
-.minimap .ol-overviewmap-map { width: 160px; height: 120px; border: 0; margin: 0; }
-.minimap button { display: none; }
-.minimap .ol-overviewmap-box { border: 2px solid var(--blue); background: color-mix(in srgb, var(--blue) 12%, transparent); }
+.minimap { position: absolute; right: 64px; bottom: var(--gap); border-radius: 12px; overflow: hidden; border: 1px solid var(--glass-border); box-shadow: var(--shadow); background: var(--glass); z-index: 1; cursor: pointer; touch-action: none; }
 .region-box { border: 2px solid var(--blue); background: color-mix(in srgb, var(--blue) 15%, transparent); }
 .map-host[data-mode="box"], .map-host[data-mode="draw"] { cursor: crosshair; }
 
@@ -412,6 +409,6 @@ a.add-row { text-decoration: none; padding: 7px 12px; }
   .actions .icon-button { width: 30px; }
   .text-button { width: var(--control-h); padding: 0; justify-content: center; }
   .inspector { bottom: var(--gap); left: var(--gap); width: auto; }
-  .minimap.ol-overviewmap { display: none; }
+  .minimap { display: none; }
   .editbar { flex-wrap: wrap; justify-content: center; }
 }
