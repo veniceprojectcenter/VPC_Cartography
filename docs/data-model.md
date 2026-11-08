@@ -73,6 +73,17 @@ The layer lives here. There is no layers file: an item belongs to exactly one la
 
 The viewer draws a layer from placements alone — one query on `map_id` + `layer_id`, no join.
 
+## Catalog — maps not in the list yet
+
+The prior team's list of about 450 maps. An entry is a `maps` row with `status=catalog`, not a table of its own: it carries tile sets, tiles and metadata like any map, so adding it to the maps list is `status=active` on the same row, and tiles made while exploring it are the tiles the list map uses. They are never made twice.
+
+- **Who sees it.** Admins. Visitors read only `active` maps (`firestore.rules`), so a catalog map is not in the picker, and a share link to one opens the default map.
+- **Import.** Catalog → Import a list takes a CSV (header row) or JSON array and shows what it would add before writing. Columns are found by their usual names (title or name, year or date, author, collection, scale, description, an image link, a link to the record); only the title is needed. Importing never changes an existing map, and importing the same list again adds nothing (`lib/catalog.ts`).
+- **Where the file's own fields live.** `maps.metadata_json` holds `{"catalog":{"key","id","image_url","record_url"}}`. The image link is kept apart from `source_image_url`, which a tile set overwrites with the stored original.
+- **Tiling.** One map at a time, on purpose, from the catalog list or `/upload?map=<id>`; "Use the catalog image" fetches the image link when its host allows it, otherwise the admin chooses the file. A catalog map that has tiles is not tiled again.
+- **Near-duplicates.** Entries sharing a title and year with another catalog or list map are flagged in the catalog list, to compare before tiling.
+- **Joining the list.** Only a tiled catalog map can. The row keeps its id and tile sets; Undo returns it to the catalog.
+
 ## `tilesets` — one row per set of tiles ever made for a map
 
 A map shows exactly one tile set. The others stay, so a map can be pointed back at an earlier one (rollback). Tiles are never written over: an upload goes into its own folder, `tilesets/<tileset_id>/`, in S3 or `uploads/`.

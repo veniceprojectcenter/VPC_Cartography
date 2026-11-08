@@ -6,8 +6,9 @@ import SignInSheet from "./SignInSheet";
 import { signed_in_email } from "@/lib/auth-client";
 import { load_dataset, save_rows, type Dataset } from "@/lib/store-client";
 import { complete_tileset, publish_blocker, publish_tileset, start_tileset, tileset_progress, type MapInfo, type TileFields } from "@/lib/edits";
-import { open_tiler, source_name, stored_tiles, upload_tileset, type Plan, type Progress } from "@/lib/tile-upload";
+import { fetch_catalog_image, open_tiler, source_name, stored_tiles, upload_tileset, type Plan, type Progress } from "@/lib/tile-upload";
 import type { MapRow, TilesetRow } from "@/lib/rows";
+import { catalog_meta, is_tiled } from "@/lib/catalog";
 
 // F17 from an image: pick it, tile it here in the browser, upload the tiles, and only once storage
 // holds every one of them, point the map at them. A stopped upload leaves the map as it was and
@@ -78,6 +79,7 @@ export default function Uploader() {
 
   const map: MapRow | undefined = useMemo(() => data?.maps.find((m) => m.map_id === mapId), [data, mapId]);
   const unfinished = useMemo(() => (data?.tilesets ?? []).filter((t) => t.map_id === mapId && t.upload_state === "uploading" && t.status === "active").sort((a, b) => b.created_at.localeCompare(a.created_at)), [data, mapId]);
+  const catalog = map?.status === "catalog" ? (catalog_meta(map) ?? { key: "", id: "", image_url: "", record_url: "" }) : null;
   const shapes = useMemo(() => (data && map ? data.placements.filter((p) => p.map_id === map.map_id && p.status === "active").length : 0), [data, map]);
 
   if (user === undefined) return <div className="fatal quiet">Checking who is signed in…</div>;
@@ -118,6 +120,15 @@ export default function Uploader() {
       setStep({ kind: "stopped", message: "Reading the image…" });
       const { worker, plan } = await open_tiler(file);
       setStep({ kind: "planned", file, worker, plan });
+    } catch (e) {
+      setStep({ kind: "stopped", message: (e as Error).message });
+    }
+  }
+
+  async function use_catalog_image(url: string) {
+    setStep({ kind: "stopped", message: "Fetching the catalog image…" });
+    try {
+      await choose(await fetch_catalog_image(url));
     } catch (e) {
       setStep({ kind: "stopped", message: (e as Error).message });
     }
@@ -196,7 +207,9 @@ export default function Uploader() {
     }
   }
 
-  const title = map ? `New tiles for ${map.name}` : "New map from an image";
+  const title = catalog ? `Tile ${map!.name} to explore` : map ? `New tiles for ${map.name}` : "New map from an image";
+  // Tiles are kept, never made twice: a catalog map that has them is explored, not tiled again.
+  const tiledAlready = !!catalog && is_tiled(map!);
   const running = step.kind === "running";
 
   return (
@@ -244,11 +257,19 @@ export default function Uploader() {
           </fieldset>
         )}
 
-        <label className={`drop ${running ? "disabled" : ""}`}>
+        {catalog && !tiledAlready && (
+          <p className="note">From the catalog. Tiling is for looking at it; it joins the maps list only if you add it afterwards.{catalog.record_url && <> <a href={catalog.record_url} target="_blank" rel="noreferrer">Catalog record</a>.</>}</p>
+        )}
+        {tiledAlready && <p className="note">{map!.name} is tiled already. Tiles are kept and never made twice. <a href={`/?map=${map!.map_id}`}>Explore it</a>, and add it to the maps list from there if it is worth keeping.</p>}
+        {catalog && !tiledAlready && catalog.image_url && (
+          <button type="button" disabled={running || step.kind === "planned"} onClick={() => use_catalog_image(catalog.image_url)}><ImageUp /> Use the catalog image</button>
+        )}
+
+        {!tiledAlready && <label className={`drop ${running ? "disabled" : ""}`}>
           <ImageUp />
           <span>{step.kind === "planned" || step.kind === "running" ? step.file.name : "Choose an image — JPEG, PNG, TIFF or WebP"}</span>
           <input type="file" accept="image/jpeg,image/png,image/tiff,image/webp" disabled={running} onChange={(e) => choose(e.target.files?.[0])} />
-        </label>
+        </label>}
 
         {step.kind === "planned" && (
           <PlanSummary plan={step.plan} />
@@ -260,7 +281,7 @@ export default function Uploader() {
         {step.kind === "stopped" && <p className={step.message.endsWith("…") ? "note" : "error"} role="status">{step.message}</p>}
 
         {step.kind === "published" && (
-          <p className="success" role="status"><Check /> All {step.tiles} tiles are stored and the map shows them. <a href={`/?map=${step.mapId}`}>Open the map</a></p>
+          <p className="success" role="status"><Check /> <span>All {step.tiles} tiles are stored and the map shows them. <a href={`/?map=${step.mapId}`}>Open the map</a>{catalog && " to look at it, and add it to the maps list from its Maps panel if it is worth keeping."}</span></p>
         )}
 
         <footer className="page-foot">
@@ -270,7 +291,7 @@ export default function Uploader() {
             <button
               type="button"
               className="primary"
-              disabled={step.kind !== "planned" || !!blocker(step.plan)}
+              disabled={tiledAlready || step.kind !== "planned" || !!blocker(step.plan)}
               onClick={() => {
                 setTried(true);
                 if (step.kind === "planned" && (map || Object.keys(errors).length === 0)) run(step.file, step.worker, step.plan);

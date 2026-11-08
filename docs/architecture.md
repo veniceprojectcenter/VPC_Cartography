@@ -83,6 +83,9 @@ Ported function, new finish, per ali-skills 11: Apple system colours (blue, whit
    - **Item table** (Edit → Items): find by name or code across every layer and map, sort, edit in place, delete, restore, and put back a shape removed from one map.
    - **Move a shape** to another item, or to a new item made from it. An item has one shape per map, so a target already drawn there is refused, with the reason.
    - **Start a shape from the item's outline on another map.** It is placed in the middle of the view at a third of its size, keeping the outline's proportions, then opened for reshaping.
+   - **Move and copy to another layer** (Inspector). Move changes the item's layer on every map, or only this map's shape (it becomes a new item); copy leaves the original and makes a second item with the same outline. Both undoable. An item belongs to one layer, so "copy to a layer" is a second item, not one item in two layers.
+   - **Minimap** (`components/MiniMap.ts`): the whole map at one fixed resolution with a box on the viewed part; click or drag to move. `ol/control/OverviewMap` re-fits itself to the main view, which is why it showed a fragment.
 5. Uploader. **Done.**
+   - **Catalog.** Maps from the prior team's list are `maps` rows with `status=catalog`: tile one to explore it, add it to the maps list if it is worth keeping (`docs/data-model.md`, Catalog).
 6. S3 for images. **Done in code**, checked through the local store that speaks the same signed-URL contract; not yet run against a real bucket.
 7. Release: `docs/release.md`.

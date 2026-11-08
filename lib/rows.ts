@@ -39,7 +39,9 @@ export const TILESET_COLUMNS = [
 
 export type UploadState = "uploading" | "complete";
 
-export type Status = "active" | "deleted";
+// `catalog` is for maps only: a map from the catalog list that is not in the maps list yet.
+// Visitors never read it (firestore.rules); an admin can tile it, explore it and add it.
+export type Status = "active" | "deleted" | "catalog";
 type Row<C extends readonly string[]> = { [K in C[number]]: K extends "status" ? Status : string };
 
 export type MapRow = Row<typeof MAP_COLUMNS>;

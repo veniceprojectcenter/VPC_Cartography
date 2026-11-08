@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, ChevronRight, ImageUp, Pencil, Plus, Search, X } from "lucide-react";
+import { BookMarked, Check, ChevronRight, ImageUp, Pencil, Plus, Search, X } from "lucide-react";
 import type { Layer, MapRow } from "@/lib/rows";
 
 // F2 and F4: the map picker and the layer picker, each its own side panel opened from the top bar.
@@ -39,6 +39,11 @@ type MapsProps = {
   editMode: boolean;
   onNewMap: () => void;
   onEditMap: (map: MapRow) => void;
+  catalogCount: number;
+  onCatalog: () => void;
+  // The map on view is from the catalog: add it to the list.
+  onPromote: () => void;
+  saving: boolean;
 };
 
 const META_KEYS = ["author", "source", "collection", "scale"] as const;
@@ -53,6 +58,12 @@ export function MapsPanel(p: MapsProps) {
     <PanelShell title="Maps" onClose={p.onClose}>
       <div className="current-map">
         <div className="current-map-name">{p.currentMap.name} <span className="year">{p.currentMap.year}</span></div>
+        {p.currentMap.status === "catalog" && (
+          <div className="catalog-note">
+            <p className="note">From the catalog, not in the maps list yet. Only you can see it.</p>
+            {p.editMode && <button type="button" className="primary" disabled={p.saving} onClick={p.onPromote}>{p.saving ? "Saving…" : "Add to maps list"}</button>}
+          </div>
+        )}
         {p.currentMap.description && <p className="note">{p.currentMap.description}</p>}
         {meta.length > 0 && (
           <dl className="map-meta">
@@ -82,6 +93,7 @@ export function MapsPanel(p: MapsProps) {
           <>
             <a className="add-row" href="/upload"><ImageUp /> New map from an image</a>
             <button type="button" className="add-row" onClick={p.onNewMap}><Plus /> New map from tile links</button>
+            <button type="button" className="add-row" onClick={p.onCatalog}><BookMarked /> Catalog{p.catalogCount ? ` (${p.catalogCount.toLocaleString()})` : ""}</button>
           </>
         )}
       </div>

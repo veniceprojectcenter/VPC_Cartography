@@ -28,6 +28,8 @@ firebase apps:create web Cartography
 firebase deploy --only firestore:rules,auth
 ```
 
+The rules also allow `status=catalog` on `maps` (the catalog, `docs/data-model.md`); redeploy them before importing a catalog list into the live project, or the write is refused.
+
 `apps:sdkconfig` prints the web config that is in `.env.production`.
 
 **Loading the rows and granting admins** needs a service-account key, only on the machine that runs the scripts. Create it in the console: Project settings → Service accounts → Generate new private key. Keep it outside this folder; it never goes in git or on the host. The host only checks sign-ins, and that needs nothing but the project id.

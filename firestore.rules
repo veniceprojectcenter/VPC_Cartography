@@ -2,7 +2,8 @@ rules_version = '2';
 
 // Anyone reads active rows of the three public tables. Admins (custom claim `admin`, set by
 // scripts/grant-admin.ts) read everything and write rows. Nobody removes a row: deleting is
-// status = "deleted" (docs/data-model.md).
+// status = "deleted" (docs/data-model.md). A map may also be "catalog": listed by the prior team,
+// not in the maps list yet. Visitors do not read it; the read rule below only lets "active" through.
 service cloud.firestore {
   match /databases/{database}/documents {
     function isAdmin() {
@@ -17,7 +18,7 @@ service cloud.firestore {
     // A row is keyed by its own id and has a known status.
     function isRow(table, id) {
       let row = request.resource.data;
-      return row[keyOf(table)] == id && row.status in ['active', 'deleted'];
+      return row[keyOf(table)] == id && (row.status in ['active', 'deleted'] || (table == 'maps' && row.status == 'catalog'));
     }
 
     match /{table}/{id} {

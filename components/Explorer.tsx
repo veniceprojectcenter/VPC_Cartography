@@ -12,11 +12,13 @@ import ItemTable from "./ItemTable";
 import ItemForm, { type ItemFormResult } from "./ItemForm";
 import LayerMoveSheet, { type LayerMove } from "./LayerMoveSheet";
 import MapForm from "./MapForm";
+import CatalogSheet from "./CatalogSheet";
+import CatalogImportSheet from "./CatalogImportSheet";
 import AboutSheet from "./AboutSheet";
 import { Toasts, useToasts } from "./Toasts";
 import { layers_from_items, type ItemRow, type MapRow, type PlacementRow } from "@/lib/rows";
 import { load_dataset, save_rows, type Dataset, type Write } from "@/lib/store-client";
-import { apply_writes, publish_blocker, publish_tileset, copy_to_layer, create_item, delete_item, delete_placement, in_sequence, layer_of, move_item_to_layer, move_shape_to_layer, place_existing_item, reassign_blocker, reassign_placement, restore_item, restore_placement, update_item, update_layer, update_shape, save_map, type MapFields } from "@/lib/edits";
+import { apply_writes, publish_blocker, publish_tileset, copy_to_layer, create_item, import_catalog, promote_map, return_to_catalog, delete_item, delete_placement, in_sequence, layer_of, move_item_to_layer, move_shape_to_layer, place_existing_item, reassign_blocker, reassign_placement, restore_item, restore_placement, update_item, update_layer, update_shape, save_map, type MapFields } from "@/lib/edits";
 import { signed_in_email, sign_out } from "@/lib/auth-client";
 import { build_share_url, read_view_from_url } from "@/lib/share";
 import type { Polygon } from "@/lib/geometry";
@@ -28,7 +30,7 @@ const DEFAULT_MAP = "debarbari";
 // Panel width + its two gutters (globals.css --panel-w, --gap): a fit or focus keeps clear of an open panel.
 const PANEL_INSET = 344;
 
-type Sheet = null | { kind: "new-shape"; geometry: Polygon } | { kind: "edit-item"; item: ItemRow } | { kind: "map"; map?: MapRow } | { kind: "about" } | { kind: "sign-in" } | { kind: "items" } | { kind: "move-shape"; placement: PlacementRow } | { kind: "layer-move"; mode: "move" | "copy"; placement: PlacementRow };
+type Sheet = null | { kind: "new-shape"; geometry: Polygon } | { kind: "edit-item"; item: ItemRow } | { kind: "map"; map?: MapRow } | { kind: "about" } | { kind: "sign-in" } | { kind: "items" } | { kind: "move-shape"; placement: PlacementRow } | { kind: "layer-move"; mode: "move" | "copy"; placement: PlacementRow } | { kind: "catalog" } | { kind: "catalog-import" };
 type Panel = null | "maps" | "layers";
 
 export default function Explorer() {
@@ -54,13 +56,15 @@ export default function Explorer() {
     // Who is signed in decides what is read: admins also get deleted rows and tile sets.
     signed_in_email()
       .catch(() => null)
-      .then((email) => {
+      .then(async (email) => {
         setUser(email);
-        return load_dataset(!!email);
+        return [await load_dataset(!!email), email] as const;
       })
-      .then((d) => {
+      .then(([d, email]) => {
         const view = read_view_from_url(window.location.search, d.items);
-        const map = d.maps.find((m) => m.map_id === view.mapId && m.status === "active") ?? d.maps.find((m) => m.map_id === DEFAULT_MAP) ?? d.maps[0];
+        // A catalog map can be opened by an admin only; it is not in the list yet.
+        const opens = (m: MapRow) => m.status === "active" || (!!email && m.status === "catalog");
+        const map = d.maps.find((m) => m.map_id === view.mapId && opens(m)) ?? d.maps.find((m) => m.map_id === DEFAULT_MAP) ?? d.maps[0];
         const item = view.itemId ? d.items.find((i) => i.item_id === view.itemId) : undefined;
         setData(d);
         setMapId(map.map_id);
@@ -78,6 +82,7 @@ export default function Explorer() {
 
   const mapsById = useMemo(() => new Map((data?.maps ?? []).map((m) => [m.map_id, m])), [data]);
   const activeMaps = useMemo(() => (data?.maps ?? []).filter((m) => m.status === "active"), [data]);
+  const catalogMaps = useMemo(() => (data?.maps ?? []).filter((m) => m.status === "catalog"), [data]);
   const layers = useMemo(() => layers_from_items(data?.items ?? []), [data]);
   const currentMap = mapId ? mapsById.get(mapId) ?? null : null;
   const selectedItem = useMemo(() => data?.items.find((i) => i.item_id === selectedItemId) ?? null, [data, selectedItemId]);
@@ -330,6 +335,13 @@ export default function Explorer() {
     }
   }
 
+  async function add_to_maps_list(map: MapRow) {
+    const writes = guarded_writes(() => promote_map(map, user!));
+    if (!writes.length) return;
+    const id = map.map_id;
+    await commit(writes, `${map.name} is in the maps list.`, (d) => return_to_catalog(d.maps.find((m) => m.map_id === id)!, user!));
+  }
+
   // Start this item's shape here from its outline on another map, then go straight to reshaping it.
   async function copy_shape_from(item: ItemRow, fromMapId: string) {
     const source = data?.placements.find((p) => p.placement_id === `${item.item_id}@${fromMapId}` && p.status === "active");
@@ -414,6 +426,10 @@ export default function Explorer() {
           editMode={canEdit}
           onNewMap={() => setSheet({ kind: "map" })}
           onEditMap={(m) => setSheet({ kind: "map", map: m })}
+          catalogCount={catalogMaps.length}
+          onCatalog={() => setSheet({ kind: "catalog" })}
+          onPromote={() => add_to_maps_list(currentMap)}
+          saving={saving}
         />
       )}
       {panel === "layers" && (
@@ -550,6 +566,29 @@ export default function Explorer() {
           onRestorePlacement={(pl) => guarded(() => commit(restore_placement(data, pl, user!), `${pl.item_name || "Shape"} is back on ${pl.map_name}.`,
             (d) => delete_placement(d, d.placements.find((x) => x.placement_id === pl.placement_id)!, user!)))}
           onOpenOn={(item, id) => { setSheet(null); open_item_on_map(item, id); }}
+        />
+      )}
+      {sheet?.kind === "catalog" && (
+        <CatalogSheet
+          catalog={catalogMaps}
+          listed={activeMaps}
+          saving={saving}
+          onClose={() => setSheet(null)}
+          onImport={() => setSheet({ kind: "catalog-import" })}
+          onExplore={(m) => { setSheet(null); setPanel(null); setMapId(m.map_id); }}
+          onPromote={add_to_maps_list}
+        />
+      )}
+      {sheet?.kind === "catalog-import" && (
+        <CatalogImportSheet
+          existing={data.maps}
+          by={user!}
+          saving={saving}
+          onClose={() => setSheet({ kind: "catalog" })}
+          onImport={async (entries) => {
+            const ids = new Set(entries.map((e) => e.map_id));
+            if (await commit(import_catalog(entries), `${entries.length.toLocaleString()} maps added to the catalog.`, (d) => [{ table: "maps", rows: d.maps.filter((m) => ids.has(m.map_id)).map((m) => ({ ...m, status: "deleted" as const, updated_by: user!, updated_at: new Date().toISOString() })) }])) setSheet({ kind: "catalog" });
+          }}
         />
       )}
       {sheet?.kind === "layer-move" && (() => {

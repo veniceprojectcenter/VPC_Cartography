@@ -60,6 +60,25 @@ export function source_name(file: File): string {
   return `source.${ext}`;
 }
 
+const IMAGE_EXTENSIONS: Record<string, string> = { "image/jpeg": "jpg", "image/png": "png", "image/tiff": "tiff", "image/webp": "webp" };
+
+// A catalog entry's image link, fetched by the browser. Whether the host allows that (CORS) is
+// its choice; when it does not, the admin downloads the file and chooses it instead.
+export async function fetch_catalog_image(url: string): Promise<File> {
+  let res: Response;
+  try {
+    res = await fetch(url);
+  } catch {
+    throw new Error("The image's host would not hand it to the browser. Download it and choose the file instead.");
+  }
+  if (!res.ok) throw new Error(`The image's host answered ${res.status}. Download it and choose the file instead.`);
+  const blob = await res.blob();
+  const ext = IMAGE_EXTENSIONS[blob.type] ?? new URL(url, window.location.href).pathname.split(".").pop()?.toLowerCase() ?? "";
+  const file = new File([blob], `catalog.${ext}`, { type: blob.type });
+  source_name(file);
+  return file;
+}
+
 // Opens the worker and reads the image's size and tile plan. Cheap next to the upload itself.
 export function open_tiler(file: File): Promise<{ worker: Worker; plan: Plan }> {
   if (!crossOriginIsolated) return Promise.reject(new Error("This page is not cross-origin isolated, so the tiler cannot start. Open the uploader from its own page (/upload)."));

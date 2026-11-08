@@ -4,6 +4,7 @@
 import { TILE_COLUMNS, type ItemRow, type Layer, type MapRow, type PlacementRow, type TilesetRow } from "./rows";
 import type { Dataset, Write } from "./store-client";
 import { polygonCenter, type Polygon } from "./geometry";
+import { is_tiled } from "./catalog";
 
 function now() {
   return new Date().toISOString();
@@ -353,4 +354,30 @@ export function publish_tileset(data: Dataset, tileset: TilesetRow, by: string, 
     { table: "tilesets", rows: [tileset] },
     { table: "placements", rows: map ? renamed_placements(data, row, by) : [] },
   ];
+}
+
+// ---------- catalog ----------
+// A catalog map is tiled to explore it, then added to the maps list or left where it is. Both
+// are status changes on the same row, so the tiles are never made twice.
+
+
+export function import_catalog(entries: MapRow[]): Write[] {
+  return [{ table: "maps", rows: entries }];
+}
+
+// Why this map cannot be added to the maps list, or null.
+export function promote_blocker(map: MapRow): string | null {
+  if (map.status !== "catalog") return `${map.name} is already in the maps list.`;
+  return is_tiled(map) ? null : `${map.name} has no tiles yet. Tile it first, so there is something to show.`;
+}
+
+export function promote_map(map: MapRow, by: string): Write[] {
+  const blocker = promote_blocker(map);
+  if (blocker) throw new Error(blocker);
+  return [{ table: "maps", rows: [touched({ ...map, status: "active" as const }, by)] }];
+}
+
+// Undoes promote_map.
+export function return_to_catalog(map: MapRow, by: string): Write[] {
+  return [{ table: "maps", rows: [touched({ ...map, status: "catalog" as const }, by)] }];
 }
