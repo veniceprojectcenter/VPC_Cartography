@@ -19,6 +19,8 @@ type Props = {
   onRemoveHere: () => void;
   onDeleteItem: () => void;
   onMoveShape: () => void;
+  onMoveToLayer: () => void;
+  onCopyToLayer: () => void;
   onCopyFrom: (mapId: string) => void;
 };
 
@@ -65,6 +67,8 @@ export default function Inspector(p: Props) {
             <>
               <button type="button" onClick={p.onEditDetails}>Edit details</button>
               {p.onThisMap ? <button type="button" onClick={p.onEditShape}>Edit shape</button> : <button type="button" className="primary" onClick={p.onDrawHere}>Draw it on this map</button>}
+              {p.onThisMap && <button type="button" onClick={p.onMoveToLayer}>Move to layer</button>}
+              {p.onThisMap && <button type="button" onClick={p.onCopyToLayer}>Copy to layer</button>}
               {p.onThisMap && <button type="button" onClick={p.onMoveShape}>Move to another item</button>}
               {p.onThisMap && <button type="button" className="destructive-quiet" onClick={() => setConfirming("here")}>Remove from map</button>}
               {!p.onThisMap && others.length > 0 && (

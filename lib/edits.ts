@@ -212,6 +212,37 @@ export function reassign_placement(data: Dataset, placement: PlacementRow, targe
   ];
 }
 
+export function layer_of(item: ItemRow): Layer {
+  return { layer_id: item.layer_id, layer_name: item.layer_name, layer_color: item.layer_color, layer_parent: item.layer_parent };
+}
+
+// Reclassify: the item changes layer, on every map it is drawn on. Nothing is redrawn.
+export function move_item_to_layer(data: Dataset, item: ItemRow, layer: Layer, by: string): Write[] {
+  return update_item(data, item, { name: item.name, code: item.code, link: item.link }, layer, by);
+}
+
+// The same outline as a new item in another layer, on the map the shape is on; the source is
+// left as it is. A copy is its own item from then on (own id, own layer), so the two never drift.
+export function copy_to_layer(data: Dataset, placement: PlacementRow, layer: Layer, by: string): Write[] {
+  const source = data.items.find((i) => i.item_id === placement.item_id);
+  const map = data.maps.find((m) => m.map_id === placement.map_id);
+  if (!source || !map) throw new Error("The shape's item or map is gone.");
+  if (layer.layer_id === source.layer_id) throw new Error(`${source.name || "This item"} is already in ${layer.layer_name}.`);
+  const writes = create_item(data, { name: source.name, code: source.code, link: source.link }, layer, map, JSON.parse(placement.geometry) as Polygon, by);
+  const [item] = writes[0].rows as ItemRow[];
+  item.metadata_json = source.metadata_json;
+  return writes;
+}
+
+// The copy, then the original off this map: this map's shape alone changes layer, the item's
+// other maps stay where they are.
+export function move_shape_to_layer(data: Dataset, placement: PlacementRow, layer: Layer, by: string): Write[] {
+  return in_sequence(data, [
+    (d) => copy_to_layer(d, placement, layer, by),
+    (d) => delete_placement(d, d.placements.find((p) => p.placement_id === placement.placement_id)!, by),
+  ]);
+}
+
 // F18: rename, recolour or regroup a layer: every item and placement of it is rewritten.
 export function update_layer(data: Dataset, layerId: string, next: Omit<Layer, "layer_id">, by: string): Write[] {
   const items = data.items.filter((i) => i.layer_id === layerId).map((i) => touched({ ...i, ...next }, by));

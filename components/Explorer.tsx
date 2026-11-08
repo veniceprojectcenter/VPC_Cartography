@@ -10,12 +10,13 @@ import SearchBox from "./SearchBox";
 import Inspector from "./Inspector";
 import ItemTable from "./ItemTable";
 import ItemForm, { type ItemFormResult } from "./ItemForm";
+import LayerMoveSheet, { type LayerMove } from "./LayerMoveSheet";
 import MapForm from "./MapForm";
 import AboutSheet from "./AboutSheet";
 import { Toasts, useToasts } from "./Toasts";
 import { layers_from_items, type ItemRow, type MapRow, type PlacementRow } from "@/lib/rows";
 import { load_dataset, save_rows, type Dataset, type Write } from "@/lib/store-client";
-import { apply_writes, publish_blocker, publish_tileset, create_item, delete_item, delete_placement, in_sequence, place_existing_item, reassign_blocker, reassign_placement, restore_item, restore_placement, update_item, update_layer, update_shape, save_map, type MapFields } from "@/lib/edits";
+import { apply_writes, publish_blocker, publish_tileset, copy_to_layer, create_item, delete_item, delete_placement, in_sequence, layer_of, move_item_to_layer, move_shape_to_layer, place_existing_item, reassign_blocker, reassign_placement, restore_item, restore_placement, update_item, update_layer, update_shape, save_map, type MapFields } from "@/lib/edits";
 import { signed_in_email, sign_out } from "@/lib/auth-client";
 import { build_share_url, read_view_from_url } from "@/lib/share";
 import type { Polygon } from "@/lib/geometry";
@@ -27,7 +28,7 @@ const DEFAULT_MAP = "debarbari";
 // Panel width + its two gutters (globals.css --panel-w, --gap): a fit or focus keeps clear of an open panel.
 const PANEL_INSET = 344;
 
-type Sheet = null | { kind: "new-shape"; geometry: Polygon } | { kind: "edit-item"; item: ItemRow } | { kind: "map"; map?: MapRow } | { kind: "about" } | { kind: "sign-in" } | { kind: "items" } | { kind: "move-shape"; placement: PlacementRow };
+type Sheet = null | { kind: "new-shape"; geometry: Polygon } | { kind: "edit-item"; item: ItemRow } | { kind: "map"; map?: MapRow } | { kind: "about" } | { kind: "sign-in" } | { kind: "items" } | { kind: "move-shape"; placement: PlacementRow } | { kind: "layer-move"; mode: "move" | "copy"; placement: PlacementRow };
 type Panel = null | "maps" | "layers";
 
 export default function Explorer() {
@@ -229,6 +230,16 @@ export default function Explorer() {
     }
   }
 
+  // Builds the writes of a pure edit; if it refuses (throws), says why and returns none.
+  function guarded_writes(build: () => Write[]): Write[] {
+    try {
+      return build();
+    } catch (e) {
+      toasts.push({ tone: "error", text: (e as Error).message });
+      return [];
+    }
+  }
+
   // A pure edit that refuses (throws) shows why, instead of failing silently.
   function guarded(run: () => unknown) {
     try {
@@ -272,6 +283,50 @@ export default function Explorer() {
       const layer = data.items.find((i) => i.item_id === target)?.layer_id ?? (result.kind === "new" ? result.layer.layer_id : "");
       setLayerIds((ids) => (!layer || ids.includes(layer) ? ids : [...ids, layer]));
       setSelectedItemId(target);
+    }
+  }
+
+  // Reclassify without redrawing: the item changes layer, or just this map's shape does.
+  // Undo puts everything back as it was.
+  async function move_to_layer(placement: PlacementRow, { layer, scope }: LayerMove) {
+    const item = data?.items.find((i) => i.item_id === placement.item_id);
+    if (!data || !item) return;
+    const back = layer_of(item);
+    let writes: Write[];
+    let undo: (d: Dataset) => Write[];
+    let shown: string;
+    if (scope === "item") {
+      writes = move_item_to_layer(data, item, layer, user!);
+      undo = (d) => move_item_to_layer(d, d.items.find((i) => i.item_id === item.item_id)!, back, user!);
+      shown = item.item_id;
+    } else {
+      writes = guarded_writes(() => move_shape_to_layer(data, placement, layer, user!));
+      if (!writes.length) return;
+      const copy = writes.find((w) => w.table === "placements")!.rows[0] as PlacementRow;
+      undo = (d) => in_sequence(d, [
+        (x) => delete_item(x, x.items.find((i) => i.item_id === copy.item_id)!, user!),
+        (x) => restore_placement(x, x.placements.find((p) => p.placement_id === placement.placement_id)!, user!),
+      ]);
+      shown = copy.item_id;
+    }
+    if (await commit(writes, `${item.name || "Shape"} moved to ${layer.layer_name}.`, undo)) {
+      setSheet(null);
+      setLayerIds((ids) => (ids.includes(layer.layer_id) ? ids : [...ids, layer.layer_id]));
+      setSelectedItemId(shown);
+    }
+  }
+
+  // The original stays; the copy is a new item. Undo deletes the copy.
+  async function copy_to_other_layer(placement: PlacementRow, { layer }: LayerMove) {
+    if (!data) return;
+    const writes = guarded_writes(() => copy_to_layer(data, placement, layer, user!));
+    if (!writes.length) return;
+    const copy = writes[0].rows[0] as ItemRow;
+    const undo = (d: Dataset) => delete_item(d, d.items.find((i) => i.item_id === copy.item_id)!, user!);
+    if (await commit(writes, `${copy.name || "Shape"} copied to ${layer.layer_name}.`, undo)) {
+      setSheet(null);
+      setLayerIds((ids) => (ids.includes(layer.layer_id) ? ids : [...ids, layer.layer_id]));
+      setSelectedItemId(copy.item_id);
     }
   }
 
@@ -416,6 +471,8 @@ export default function Explorer() {
           onEditDetails={() => setSheet({ kind: "edit-item", item: selectedItem })}
           onEditShape={() => setMode("edit")}
           onMoveShape={() => placementHere && setSheet({ kind: "move-shape", placement: placementHere })}
+          onMoveToLayer={() => placementHere && setSheet({ kind: "layer-move", mode: "move", placement: placementHere })}
+          onCopyToLayer={() => placementHere && setSheet({ kind: "layer-move", mode: "copy", placement: placementHere })}
           onCopyFrom={(fromId) => copy_shape_from(selectedItem, fromId)}
           onDrawHere={() => setMode("draw")}
           onRemoveHere={() => placementHere && commit(delete_placement(data, placementHere, user!), `Removed from ${currentMap.name}.`,
@@ -495,6 +552,22 @@ export default function Explorer() {
           onOpenOn={(item, id) => { setSheet(null); open_item_on_map(item, id); }}
         />
       )}
+      {sheet?.kind === "layer-move" && (() => {
+        const item = data.items.find((i) => i.item_id === sheet.placement.item_id);
+        if (!item) return null;
+        return (
+          <LayerMoveSheet
+            mode={sheet.mode}
+            item={item}
+            mapName={currentMap.name}
+            otherMaps={item.map_ids.split("|").filter((id) => id && id !== currentMap.map_id).length}
+            layers={layers}
+            saving={saving}
+            onCancel={() => setSheet(null)}
+            onSubmit={(move) => (sheet.mode === "move" ? move_to_layer : copy_to_other_layer)(sheet.placement, move)}
+          />
+        );
+      })()}
       {sheet?.kind === "move-shape" && (
         <ItemForm
           title={`Move this shape on ${currentMap.name}`}

@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import type { ItemRow, Layer, MapRow } from "@/lib/rows";
 import type { ItemFields } from "@/lib/edits";
 import Sheet from "./Sheet";
+import { LayerChoice, NEW_LAYER, useLayerChoice } from "./LayerChoice";
 
 export type ItemFormResult = { kind: "existing"; item: ItemRow } | { kind: "new"; fields: ItemFields; layer: Layer };
 
@@ -23,12 +24,6 @@ type Props = {
   onSubmit: (result: ItemFormResult) => void;
 };
 
-const NEW_LAYER = "__new__";
-
-function slug(name: string) {
-  return name.trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-}
-
 // F13 and F14. A drawn shape is attached to an existing item or makes a new one; editing reuses the new-item half.
 export default function ItemForm(p: Props) {
   const startTab = p.editing ? "new" : p.preselectedItem ? "existing" : "existing";
@@ -44,10 +39,7 @@ export default function ItemForm(p: Props) {
   const [name, setName] = useState(p.editing?.name ?? "");
   const [code, setCode] = useState(p.editing?.code ?? "");
   const [link, setLink] = useState(p.editing?.link ?? "");
-  const [layerId, setLayerId] = useState(firstLayer);
-  const [newLayerName, setNewLayerName] = useState("");
-  const [newLayerColor, setNewLayerColor] = useState("#007aff");
-  const [newLayerParent, setNewLayerParent] = useState("");
+  const choice = useLayerChoice(p.layers, firstLayer);
   const [tried, setTried] = useState(false);
 
   const candidates = useMemo(() => {
@@ -60,11 +52,8 @@ export default function ItemForm(p: Props) {
   const blocked = picked && p.existingBlocker ? p.existingBlocker(picked) : null;
   const replacesShape = !p.existingBlocker && picked?.map_ids.split("|").includes(p.currentMap.map_id);
 
-  const newLayerId = slug(newLayerName);
-  const layerTaken = p.layers.some((l) => l.layer_id === newLayerId);
   const errors = {
     name: !name.trim() ? "A name is needed." : "",
-    layer: layerId === NEW_LAYER ? (!newLayerName.trim() ? "Name the new layer." : !newLayerId ? "Use letters or numbers in the layer name." : layerTaken ? "A layer with that name exists — pick it from the list." : "") : "",
     link: link.trim() && !/^https?:\/\//.test(link.trim()) ? "Links start with https://" : "",
   };
 
@@ -74,11 +63,8 @@ export default function ItemForm(p: Props) {
       return;
     }
     setTried(true);
-    if (errors.name || errors.layer || errors.link) return;
-    const layer: Layer = layerId === NEW_LAYER
-      ? { layer_id: newLayerId, layer_name: newLayerName.trim(), layer_color: newLayerColor, layer_parent: newLayerParent.trim() }
-      : p.layers.find((l) => l.layer_id === layerId)!;
-    p.onSubmit({ kind: "new", fields: { name, code, link }, layer });
+    if (errors.name || !choice.layer || errors.link) return;
+    p.onSubmit({ kind: "new", fields: { name, code, link }, layer: choice.layer });
   }
 
   const canSubmit = tab === "existing" ? !!picked && !blocked : true;
@@ -133,22 +119,7 @@ export default function ItemForm(p: Props) {
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name of this place" autoFocus />
             {tried && errors.name && <span className="error">{errors.name}</span>}
           </label>
-          <label>Layer
-            <select value={layerId} onChange={(e) => setLayerId(e.target.value)}>
-              {p.layers.map((l) => <option key={l.layer_id} value={l.layer_id}>{l.layer_name}</option>)}
-              <option value={NEW_LAYER}>New layer…</option>
-            </select>
-          </label>
-          {layerId === NEW_LAYER && (
-            <fieldset className="inline-group">
-              <label>Layer name<input value={newLayerName} onChange={(e) => setNewLayerName(e.target.value)} placeholder="e.g. Demolished Churches" /></label>
-              <div className="layer-edit-row">
-                <label className="narrow">Colour<input type="color" value={newLayerColor} onChange={(e) => setNewLayerColor(e.target.value)} /></label>
-                <label>Group<input value={newLayerParent} onChange={(e) => setNewLayerParent(e.target.value)} placeholder="Optional" /></label>
-              </div>
-              {tried && errors.layer && <span className="error">{errors.layer}</span>}
-            </fieldset>
-          )}
+          <LayerChoice choice={choice} layers={p.layers} showError={tried} />
           <label>Code
             <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="The code from your GIS layers" />
           </label>

@@ -11,7 +11,7 @@
     "seed": "tsx scripts/seed-firestore.ts",
     "grant-admin": "tsx --env-file-if-exists=.env.local scripts/grant-admin.ts",
     "postinstall": "node scripts/copy-vendor.mjs",
-    "check": "tsx scripts/check-tileset-guard.ts"
+    "check": "tsx scripts/check-tileset-guard.ts && tsx scripts/check-layer-moves.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1161.0",
